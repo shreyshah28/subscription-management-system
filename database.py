@@ -97,6 +97,34 @@ class DB:
                 genre        VARCHAR(200),         -- listed_in column from Kaggle
                 description  TEXT,
                 created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )''',
+
+            # ── Mutual Connection Groups ──────────────────────────
+            # Each row = one group of users sharing a plan
+            '''CREATE TABLE IF NOT EXISTS mutual_groups (
+                group_id     SERIAL PRIMARY KEY,
+                plan_name    VARCHAR(50),
+                full_price   DECIMAL(10,2),
+                split_price  DECIMAL(10,2),
+                max_members  INTEGER DEFAULT 4,
+                status       VARCHAR(20) DEFAULT 'FORMING',
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )''',
+
+            # ── Per-user invite & membership record ───────────────
+            # invite_status: PENDING → ACCEPTED / DECLINED
+            # member_status: ACTIVE (after group forms) / LEFT
+            '''CREATE TABLE IF NOT EXISTS mutual_invites (
+                invite_id     SERIAL PRIMARY KEY,
+                user_id       INTEGER REFERENCES users(user_id),
+                group_id      INTEGER REFERENCES mutual_groups(group_id),
+                plan_name     VARCHAR(50),
+                split_price   DECIMAL(10,2),
+                admin_message TEXT,
+                invite_status VARCHAR(20) DEFAULT 'PENDING',
+                member_status VARCHAR(20) DEFAULT 'NONE',
+                sent_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                responded_at  TIMESTAMP
             )'''
         ]
         for cmd in commands:
@@ -175,6 +203,38 @@ class DB:
             """)
             self.conn.commit()
             print("✅ Content table checked/created.")
+        except Exception as e:
+            print(f"ℹ️ Info: {e}")
+
+        # ── NEW: Ensure mutual connection tables exist ──
+        try:
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS mutual_groups (
+                    group_id     SERIAL PRIMARY KEY,
+                    plan_name    VARCHAR(50),
+                    full_price   DECIMAL(10,2),
+                    split_price  DECIMAL(10,2),
+                    max_members  INTEGER DEFAULT 4,
+                    status       VARCHAR(20) DEFAULT 'FORMING',
+                    created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS mutual_invites (
+                    invite_id     SERIAL PRIMARY KEY,
+                    user_id       INTEGER REFERENCES users(user_id),
+                    group_id      INTEGER REFERENCES mutual_groups(group_id),
+                    plan_name     VARCHAR(50),
+                    split_price   DECIMAL(10,2),
+                    admin_message TEXT,
+                    invite_status VARCHAR(20) DEFAULT 'PENDING',
+                    member_status VARCHAR(20) DEFAULT 'NONE',
+                    sent_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    responded_at  TIMESTAMP
+                )
+            """)
+            self.conn.commit()
+            print("✅ Mutual connection tables checked/created.")
         except Exception as e:
             print(f"ℹ️ Info: {e}")
 

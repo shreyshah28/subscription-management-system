@@ -5,7 +5,7 @@ import qrcode
 from io import BytesIO
 from datetime import datetime
 
-from backend import UserModule, SubscriptionManager, ActivityTracker, AdminAnalytics, ContentManager
+from backend import UserModule, SubscriptionManager, ActivityTracker, AdminAnalytics, ContentManager, MutualConnectionManager
 from database import DB
 
 # --- PAGE CONFIG ---
@@ -22,6 +22,7 @@ sub_sys = SubscriptionManager()
 tracker = ActivityTracker()
 admin_sys = AdminAnalytics()
 content_mgr = ContentManager()
+mutual_mgr  = MutualConnectionManager()
 
 # --- CSS STYLING ---
 st.markdown("""
@@ -135,8 +136,9 @@ elif is_user_logged_in:
     st.sidebar.title(f"👋 Hi, {st.session_state['name']}")
     
     # --- SIDEBAR CANCEL BUTTON ---
+    # Fetched once here and reused throughout the entire user session page
     active_plan = sub_sys.get_active_plan(st.session_state['user_id'])
-    
+
     if active_plan:
         st.sidebar.warning("You have an active plan.")
         if st.sidebar.button("❌ Cancel Subscription", use_container_width=True):
@@ -145,9 +147,19 @@ elif is_user_logged_in:
                 st.rerun()
             else:
                 st.error("Could not cancel. Please try again.")
-    
-    user_menu = st.sidebar.radio("Menu", ["🏠 Dashboard", "📺 Browse Content", "🎬 Netflix Plans", "💬 Feedback", "🧾 My Transactions", "⚙️ My Profile"])
-    
+
+    user_menu = st.sidebar.radio("Menu", ["🏠 Dashboard", "📺 Browse Content", "💬 Feedback", "🧾 My Transactions", "⚙️ My Profile", "🔔 Notifications"])
+
+    # Notification badge — shows unread invite count next to bell
+    _notif_count = mutual_mgr.get_notification_count(st.session_state['user_id'])
+    if _notif_count > 0:
+        st.sidebar.markdown(
+            f'<div style="background:#E50914;color:white;padding:6px 12px;border-radius:8px;'
+            f'text-align:center;font-weight:bold;margin-top:-8px;">'
+            f'🔔 {_notif_count} New Invite{"s" if _notif_count > 1 else ""}!</div>',
+            unsafe_allow_html=True
+        )
+
     if st.sidebar.button("Logout"):
         tracker.log_out(st.session_state['act_id'])
         del st.session_state['user_id']
@@ -156,17 +168,16 @@ elif is_user_logged_in:
     # ── EXPIRY REMINDER ALERT (fires once per login session) ─────
     if 'expiry_alert_shown' not in st.session_state:
         st.session_state['expiry_alert_shown'] = True
-        _plan_check = sub_sys.get_active_plan(st.session_state['user_id'])
-        if _plan_check:
-            _days_left = (_plan_check['end_date'] - datetime.now()).days
+        if active_plan:
+            _days_left = (active_plan['end_date'] - datetime.now()).days
             if _days_left <= 3:
                 st.toast(f"🚨 URGENT! Your plan expires in {_days_left} day(s)! Renew NOW.", icon="🚨")
             elif _days_left <= 7:
-                st.toast(f"⚠️ Your plan expires in {_days_left} days on {_plan_check['end_date'].strftime('%d %b %Y')}.", icon="⚠️")
+                st.toast(f"⚠️ Your plan expires in {_days_left} days on {active_plan['end_date'].strftime('%d %b %Y')}.", icon="⚠️")
         else:
             _expired = sub_sys.get_expired_plan(st.session_state['user_id'])
             if _expired:
-                st.toast("🔴 Your subscription has expired! Go to Netflix Plans to renew.", icon="🔴")
+                st.toast("🔴 Your subscription has expired! Go to Dashboard to renew.", icon="🔴")
     if user_menu == "🏠 Dashboard":
         dash = user_sys.get_user_dashboard(st.session_state['user_id'])
 
@@ -247,7 +258,7 @@ elif is_user_logged_in:
                 if dash['auto_renewal']:
                     st.success("✅ Auto-Renewal is **ON** — Your plan will renew automatically.")
                 else:
-                    st.warning("❌ Auto-Renewal is **OFF** — Go to Netflix Plans to enable it.")
+                    st.warning("❌ Auto-Renewal is **OFF** — Scroll down to enable it.")
 
                 st.markdown("#### 📊 Quick Stats")
                 st.info(f"""
@@ -258,21 +269,339 @@ elif is_user_logged_in:
         else:
             # --- NO PLAN STATE ---
             st.warning("⚠️ You don't have an active subscription.")
-            st.info("Go to **🎬 Netflix Plans** from the menu to choose a plan and start watching!")
 
             c1, c2, c3 = st.columns(3)
             c1.metric("💰 Total Spent", f"₹{dash['total_spend']:,.0f}")
             c2.metric("⏱️ Watch Time", f"{dash['total_watch']} mins")
             c3.metric("📦 Past Subscriptions", dash['total_subs'])
 
-        # --- PERSONAL ANALYTICS (merged from separate page) ---
+        # ═══════════════════════════════════════════════════════
+        # NETFLIX PLANS — merged into Dashboard
+        # ═══════════════════════════════════════════════════════
         st.divider()
-        st.subheader("📊 Your Personal Analytics")
-        spend, minutes = user_sys.get_user_analytics(st.session_state['user_id'])
-        pa1, pa2, pa3 = st.columns(3)
-        pa1.metric("💰 Total Lifetime Spend", f"₹{spend:,.0f}")
-        pa2.metric("⏱️ Total Watch Time", f"{int(minutes)} mins")
-        pa3.metric("🕐 Watch Time in Hours", f"{round(int(minutes)/60, 1)} hrs")
+
+        if active_plan:
+            # --- AUTO-RENEWAL TOGGLE ---
+            st.subheader("🔄 Auto-Renewal Settings")
+            current_auto = active_plan.get('auto_renewal', False)
+            auto_label = "✅ Auto-Renewal is ON" if current_auto else "❌ Auto-Renewal is OFF"
+            st.info(auto_label)
+            st.caption("When enabled, your plan will automatically renew 30 days after expiry.")
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if not current_auto:
+                    if st.button("🟢 Enable Auto-Renewal", use_container_width=True):
+                        if sub_sys.toggle_auto_renewal(st.session_state['user_id'], True):
+                            st.success("Auto-Renewal Enabled!")
+                            st.rerun()
+            with col_b:
+                if current_auto:
+                    if st.button("🔴 Disable Auto-Renewal", use_container_width=True):
+                        if sub_sys.toggle_auto_renewal(st.session_state['user_id'], False):
+                            st.warning("Auto-Renewal Disabled.")
+                            st.rerun()
+
+        else:
+            expired_plan = sub_sys.get_expired_plan(st.session_state['user_id'])
+
+            if expired_plan and not st.session_state.get('pending_purchase'):
+                st.subheader("🔴 Your Subscription Has Expired")
+                st.warning(f"Your **{expired_plan['plan_name']}** plan expired on {expired_plan['end_date'].strftime('%Y-%m-%d')}.")
+
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    st.markdown(f"""
+                    <div style="padding: 20px; border-radius: 10px; background-color: #333; color: white;">
+                        <h3>Last Plan: {expired_plan['plan_name']}</h3>
+                        <h2>₹{expired_plan['amount']}/month</h2>
+                        <p>Status: <span style="color: #E50914;">EXPIRED</span></p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                with col2:
+                    st.subheader("🔄 Quick Renew")
+                    st.caption("Renew the same plan with one click")
+                    if st.button(f"🔄 Renew {expired_plan['plan_name']} Plan for ₹{expired_plan['amount']}", type="primary", use_container_width=True):
+                        success, result, txt_receipt = sub_sys.renew_subscription(st.session_state['user_id'])
+                        if success:
+                            st.balloons()
+                            st.success("🎉 Subscription Renewed Successfully!")
+                            st.download_button(
+                                "📥 Download Receipt (PDF)",
+                                data=result,
+                                file_name=f"Netflix_Renewal_{expired_plan['plan_name']}.pdf",
+                                mime="application/pdf"
+                            )
+                            st.rerun()
+                        else:
+                            st.error(result)
+
+                st.divider()
+                st.subheader("Or choose a different plan:")
+
+            # --- STEP 2: CONFIRMATION SCREEN ---
+            if st.session_state.get('pending_purchase'):
+                purchase = st.session_state['pending_purchase']
+                st.subheader("✅ Confirm Your Subscription")
+
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    st.subheader("👤 User Details")
+                    st.info(f"""
+                        **Name:** {st.session_state['name']}
+                        **Email:** {st.session_state['email']}
+                        **Age:** {st.session_state['age']}
+                    """)
+
+                with col2:
+                    st.subheader("🎬 Plan Details")
+                    st.success(f"""
+                        **Service:** Netflix
+                        **Plan:** {purchase['name']}
+                        **Resolution:** {purchase['res']}
+                        **Price:** ₹{purchase['price']}
+                    """)
+
+                st.divider()
+                st.warning("Please verify your details before confirming.")
+
+                col_a, col_b = st.columns([2, 1])
+                with col_a:
+                    if st.button("❌ Cancel", use_container_width=True):
+                        st.session_state['pending_purchase'] = None
+                        st.rerun()
+
+                with col_b:
+                    if st.button("✅ Confirm Payment", type="primary", use_container_width=True):
+                        txt, _ = sub_sys.buy_plan(st.session_state['user_id'], purchase['name'], purchase['price'], "Netflix")
+
+                        qr_data = f"PAID|{purchase['name']}|{purchase['price']}|{st.session_state['email']}"
+                        qr = qrcode.make(qr_data)
+                        img_buffer = BytesIO()
+                        qr.save(img_buffer, format="PNG")
+
+                        st.balloons()
+                        st.success("Payment Successful!")
+                        st.image(img_buffer, caption="Scan to verify Subscription", width=200)
+
+                        st.download_button(
+                            "📥 Download Receipt (PDF)",
+                            data=txt,
+                            file_name=f"Netflix_Receipt_{purchase['name']}.pdf",
+                            mime="application/pdf"
+                        )
+
+                        st.session_state['pending_purchase'] = None
+                        st.rerun()
+
+            # --- STEP 1: DISPLAY PLANS ---
+            else:
+                st.subheader("🔴 Choose Your Netflix Plan")
+                st.info("No active subscription found. Please select a plan to start watching.")
+
+                plans = [
+                    {"name": "Mobile",   "price": 149, "res": "480p",   "features": "1 Phone, 1 Tablet, Download"},
+                    {"name": "Standard", "price": 499, "res": "1080p",  "features": "2 Screens, HD, Download"},
+                    {"name": "Premium",  "price": 649, "res": "4K+HDR", "features": "4 Screens, Ultra HD, Spatial Audio"}
+                ]
+
+                p1, p2, p3 = st.columns(3)
+                cols = [p1, p2, p3]
+
+                for i, plan in enumerate(plans):
+                    with cols[i]:
+                        st.markdown(f"""
+                        <div class="plan-card">
+                            <h1>{plan['name']}</h1>
+                            <h2 style="margin-top: -20px;">₹{plan['price']}</h2>
+                            <hr style="border-color: #555;">
+                            <p>{plan['features']}</p>
+                            <p class="netflix-red">{plan['res']} Resolution</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        if st.button(f"Buy {plan['name']}", key=f"buy_{plan['name']}", use_container_width=True):
+                            st.session_state['pending_purchase'] = plan
+                            st.rerun()
+
+        # ── Mutual Connection Status Card (always visible in dashboard) ──
+        st.divider()
+        _grp_info, _members_df = mutual_mgr.get_user_active_connection(st.session_state['user_id'])
+        _notif_badge = mutual_mgr.get_notification_count(st.session_state['user_id'])
+
+        if _grp_info:
+            savings = float(_grp_info['full_price']) - float(_grp_info['split_price'])
+            st.markdown(f"""
+            <div style="padding:20px;border-radius:12px;background:linear-gradient(135deg,#0f3460,#16213e);
+                        border:2px solid #00ff88;margin-bottom:10px;">
+                <h3 style="color:#00ff88;margin:0 0 8px 0;">🤝 Active Mutual Connection</h3>
+                <p style="color:white;margin:4px 0;">
+                    <b>Plan:</b> Netflix {_grp_info['plan_name']}
+                    &nbsp;|&nbsp;
+                    <b>You Pay:</b>
+                    <span style="color:#00ff88;font-weight:bold;font-size:18px;">
+                        ₹{float(_grp_info['split_price']):,.2f}/month
+                    </span>
+                    &nbsp;
+                    <span style="background:#00ff88;color:#000;padding:2px 8px;border-radius:4px;font-size:12px;">
+                        Saving ₹{savings:,.2f}
+                    </span>
+                </p>
+                <p style="color:#aaa;font-size:12px;margin:4px 0;">
+                    👥 {int(_grp_info['max_members'])} members sharing this plan
+                    &nbsp;|&nbsp; Go to 🔔 Notifications to see full group details
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        elif _notif_badge > 0:
+            st.markdown(f"""
+            <div style="padding:15px;border-radius:10px;background:#2d1a1a;border:2px solid #E50914;">
+                <h4 style="color:#E50914;margin:0;">
+                    🔔 You have {_notif_badge} pending mutual connection invite{"s" if _notif_badge>1 else ""}!
+                </h4>
+                <p style="color:#aaa;margin:4px 0 0 0;font-size:13px;">
+                    Go to 🔔 Notifications in the menu to review and accept/decline.
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ═══════════════════════════════════════════════════════
+    # MUTUAL CONNECTION STATUS — shown inside Dashboard
+    # ═══════════════════════════════════════════════════════
+    elif user_menu == "🔔 Notifications":
+        st.title("🔔 Notifications & Mutual Connection Invites")
+        st.caption("Here you will receive plan-sharing invites from the admin.")
+        st.divider()
+
+        all_invites = mutual_mgr.get_all_user_invites(st.session_state['user_id'])
+
+        if all_invites.empty:
+            st.info("📭 No notifications yet. Check back later!")
+        else:
+            pending_df  = all_invites[all_invites['invite_status'] == 'PENDING']
+            past_df     = all_invites[all_invites['invite_status'] != 'PENDING']
+
+            # ── PENDING INVITES ──────────────────────────────────
+            if not pending_df.empty:
+                st.subheader(f"📩 Pending Invites ({len(pending_df)})")
+                for _, inv in pending_df.iterrows():
+                    savings = float(inv['full_price']) - float(inv['split_price'])
+                    with st.container():
+                        st.markdown(f"""
+                        <div style="padding:20px;border-radius:12px;background:#1a1a2e;
+                                    border:2px solid #E50914;margin-bottom:15px;">
+                            <h3 style="color:#E50914;margin:0;">🤝 Mutual Connection Invite</h3>
+                            <p style="color:#aaa;font-size:12px;margin:4px 0 12px 0;">
+                                Received on {inv['sent_at'].strftime('%d %b %Y, %I:%M %p')}
+                                &nbsp;|&nbsp; Group #{inv['group_id']}
+                            </p>
+                            <p style="color:white;"><b>Plan:</b> Netflix {inv['plan_name']}</p>
+                            <p style="color:white;">
+                                <b>Full Price:</b>
+                                <span style="text-decoration:line-through;color:#888;">
+                                    ₹{float(inv['full_price']):,.0f}
+                                </span>
+                                &nbsp;→&nbsp;
+                                <span style="color:#00ff88;font-size:18px;font-weight:bold;">
+                                    ₹{float(inv['split_price']):,.2f}/month
+                                </span>
+                                &nbsp;
+                                <span style="background:#00ff88;color:#000;padding:2px 8px;
+                                             border-radius:4px;font-size:12px;">
+                                    Save ₹{savings:,.2f}!
+                                </span>
+                            </p>
+                            <p style="color:white;">
+                                <b>Group Size:</b> {inv['max_members']} members sharing this plan
+                            </p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        if inv['admin_message']:
+                            st.info(f"💬 Message from Admin: \"{inv['admin_message']}\"")
+
+                        btn_col1, btn_col2, _ = st.columns([1, 1, 2])
+                        with btn_col1:
+                            if st.button("✅ Accept", key=f"acc_{inv['invite_id']}",
+                                         type="primary", use_container_width=True):
+                                ok, msg = mutual_mgr.respond_to_invite(
+                                    inv['invite_id'], st.session_state['user_id'], True
+                                )
+                                if ok:
+                                    st.success(f"🎉 {msg}")
+                                    st.balloons()
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                        with btn_col2:
+                            if st.button("❌ Decline", key=f"dec_{inv['invite_id']}",
+                                         use_container_width=True):
+                                ok, msg = mutual_mgr.respond_to_invite(
+                                    inv['invite_id'], st.session_state['user_id'], False
+                                )
+                                if ok:
+                                    st.warning(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                        st.divider()
+
+            # ── PAST INVITES (already responded) ─────────────────
+            if not past_df.empty:
+                st.subheader("📋 Past Invites")
+                for _, inv in past_df.iterrows():
+                    status_color = "#00ff88" if inv['invite_status'] == 'ACCEPTED' else "#ff4444"
+                    status_icon  = "✅" if inv['invite_status'] == 'ACCEPTED' else "❌"
+                    st.markdown(f"""
+                    <div style="padding:15px;border-radius:10px;background:#111;
+                                border:1px solid #333;margin-bottom:10px;">
+                        <span style="color:{status_color};font-weight:bold;">
+                            {status_icon} {inv['invite_status']}
+                        </span>
+                        &nbsp;|&nbsp;
+                        <span style="color:white;">Netflix {inv['plan_name']}</span>
+                        &nbsp;|&nbsp;
+                        <span style="color:#E50914;">₹{float(inv['split_price']):,.2f}/month</span>
+                        &nbsp;|&nbsp;
+                        <span style="color:#888;font-size:12px;">Group #{inv['group_id']}</span>
+                        &nbsp;|&nbsp;
+                        <span style="color:#888;font-size:12px;">
+                            Responded: {inv['responded_at'].strftime('%d %b %Y') if inv['responded_at'] is not None else '—'}
+                        </span>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        # ── Active Group Details ─────────────────────────────────
+        st.divider()
+        group_info, members_df = mutual_mgr.get_user_active_connection(
+            st.session_state['user_id']
+        )
+        if group_info:
+            st.subheader("🤝 Your Active Mutual Connection Group")
+            savings = float(group_info['full_price']) - float(group_info['split_price'])
+            g1, g2, g3 = st.columns(3)
+            g1.metric("📦 Plan",         f"Netflix {group_info['plan_name']}")
+            g2.metric("💰 You Pay",       f"₹{float(group_info['split_price']):,.2f}/mo",
+                      delta=f"Save ₹{savings:,.2f}")
+            g3.metric("👥 Group Size",    f"{int(group_info['max_members'])} members")
+
+            st.markdown("#### 👥 Group Members")
+            for _, m in members_df.iterrows():
+                badge_color = "#00ff88" if m['invite_status'] == 'ACCEPTED' else "#ff9900"
+                badge_text  = m['invite_status']
+                st.markdown(f"""
+                <div style="padding:10px 15px;border-radius:8px;background:#1a1a2e;
+                            border-left:3px solid {badge_color};margin-bottom:8px;
+                            display:flex;justify-content:space-between;">
+                    <span style="color:white;">👤 {m['fullname']}
+                        <span style="color:#888;font-size:12px;"> — {m['country']}</span>
+                    </span>
+                    <span style="color:{badge_color};font-size:12px;font-weight:bold;">
+                        {badge_text}
+                    </span>
+                </div>
+                """, unsafe_allow_html=True)
 
     # --- MY TRANSACTIONS (merged Billing History + Payment History) ---
     elif user_menu == "🧾 My Transactions":
@@ -442,10 +771,9 @@ elif is_user_logged_in:
             st.stop()
 
         # ── Check if user has active subscription ───────────
-        active_plan = sub_sys.get_active_plan(st.session_state['user_id'])
         if not active_plan:
             st.error("🔒 **Content Library is locked.** You need an active subscription to browse.")
-            st.info("Go to **🎬 Netflix Plans** from the sidebar to subscribe.")
+            st.info("Go to **🏠 Dashboard** to choose a plan and subscribe.")
             st.stop()
 
         # ── Stats bar ────────────────────────────────────────
@@ -604,203 +932,6 @@ elif is_user_logged_in:
                             </div>
                             """, unsafe_allow_html=True)
 
-    elif user_menu == "🎬 Netflix Plans":
-        
-        # --- CHECK FOR ACTIVE PLAN ---
-        # Note: We refetch active_plan here because it might have changed via Cancel
-        active_plan = sub_sys.get_active_plan(st.session_state['user_id'])
-        
-        # --- CASE A: USER HAS AN ACTIVE PLAN ---
-        if active_plan:
-            st.title("🟢 Your Current Subscription")
-            st.info("You are enjoying uninterrupted streaming.")
-            
-            plan_features = {
-                "Mobile": "480p, 1 Phone + 1 Tablet",
-                "Standard": "1080p, 2 Screens, HD",
-                "Premium": "4K+HDR, 4 Screens, Ultra HD"
-            }
-            
-            p_name = active_plan['plan_name']
-            p_price = active_plan['amount']
-            start_date = active_plan['start_date'].strftime("%Y-%m-%d")
-            end_date = active_plan['end_date'].strftime("%Y-%m-%d")
-            resolution = "Unknown"
-            full_desc = ""
-            
-            if p_name in plan_features:
-                full_desc = plan_features[p_name]
-                if "480p" in full_desc: resolution = "480p"
-                elif "1080p" in full_desc: resolution = "1080p"
-                elif "4K" in full_desc: resolution = "4K+HDR"
-
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                st.markdown(f"""
-                <div style="padding: 20px; border-radius: 10px; background-color: #E50914; color: white;">
-                    <h2>{p_name} Plan</h2>
-                    <h1>₹{p_price}</h1>
-                    <p>Status: {active_plan['status']}</p>
-                    <p>Resolution: {resolution}</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                st.metric("Valid Until", end_date)
-                st.metric("Started On", start_date)
-                st.caption(f"{full_desc}")
-            
-            # --- AUTO-RENEWAL TOGGLE ---
-            st.divider()
-            st.subheader("🔄 Auto-Renewal Settings")
-            current_auto = active_plan.get('auto_renewal', False)
-            auto_label = "✅ Auto-Renewal is ON" if current_auto else "❌ Auto-Renewal is OFF"
-            st.info(auto_label)
-            st.caption("When enabled, your plan will automatically renew 30 days after expiry.")
-            
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if not current_auto:
-                    if st.button("🟢 Enable Auto-Renewal", use_container_width=True):
-                        if sub_sys.toggle_auto_renewal(st.session_state['user_id'], True):
-                            st.success("Auto-Renewal Enabled!")
-                            st.rerun()
-            with col_b:
-                if current_auto:
-                    if st.button("🔴 Disable Auto-Renewal", use_container_width=True):
-                        if sub_sys.toggle_auto_renewal(st.session_state['user_id'], False):
-                            st.warning("Auto-Renewal Disabled.")
-                            st.rerun()
-
-        # --- CASE B: USER HAS EXPIRED/CANCELLED PLAN (SHOW RENEW) ---
-        else:
-            expired_plan = sub_sys.get_expired_plan(st.session_state['user_id'])
-            
-            if expired_plan and not st.session_state.get('pending_purchase'):
-                st.title("🔴 Your Subscription Has Expired")
-                st.warning(f"Your **{expired_plan['plan_name']}** plan expired on {expired_plan['end_date'].strftime('%Y-%m-%d')}.")
-                
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    st.markdown(f"""
-                    <div style="padding: 20px; border-radius: 10px; background-color: #333; color: white;">
-                        <h3>Last Plan: {expired_plan['plan_name']}</h3>
-                        <h2>₹{expired_plan['amount']}/month</h2>
-                        <p>Status: <span style="color: #E50914;">EXPIRED</span></p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col2:
-                    st.subheader("🔄 Quick Renew")
-                    st.caption("Renew the same plan with one click")
-                    if st.button(f"🔄 Renew {expired_plan['plan_name']} Plan for ₹{expired_plan['amount']}", type="primary", use_container_width=True):
-                        success, result, txt_receipt = sub_sys.renew_subscription(st.session_state['user_id'])
-                        if success:
-                            st.balloons()
-                            st.success("🎉 Subscription Renewed Successfully!")
-                            st.download_button(
-                                "📥 Download Receipt (PDF)",
-                                data=result,
-                                file_name=f"Netflix_Renewal_{expired_plan['plan_name']}.pdf",
-                                mime="application/pdf"
-                            )
-                            st.rerun()
-                        else:
-                            st.error(result)
-                
-                st.divider()
-                st.subheader("Or choose a different plan:")
-
-            # --- STEP 2: CONFIRMATION SCREEN (If a buy button was clicked) ---
-            if st.session_state.get('pending_purchase'):
-                purchase = st.session_state['pending_purchase']
-                st.title("✅ Confirm Your Subscription")
-                
-                col1, col2 = st.columns([1, 1])
-                
-                with col1:
-                    st.subheader("👤 User Details")
-                    st.info(f"""
-                        **Name:** {st.session_state['name']}
-                        **Email:** {st.session_state['email']}
-                        **Age:** {st.session_state['age']}
-                    """)
-                
-                with col2:
-                    st.subheader("🎬 Plan Details")
-                    st.success(f"""
-                        **Service:** Netflix
-                        **Plan:** {purchase['name']}
-                        **Resolution:** {purchase['res']}
-                        **Price:** ₹{purchase['price']}
-                    """)
-                
-                st.divider()
-                st.warning("Please verify your details before confirming.")
-                
-                col_a, col_b = st.columns([2, 1])
-                with col_a:
-                    if st.button("❌ Cancel", use_container_width=True):
-                        st.session_state['pending_purchase'] = None
-                        st.rerun()
-                
-                with col_b:
-                    if st.button("✅ Confirm Payment", type="primary", use_container_width=True):
-                        # Process Transaction
-                        txt, pdf_bytes = sub_sys.buy_plan(st.session_state['user_id'], purchase['name'], purchase['price'], "Netflix")
-                        
-                        # Generate QR Code
-                        qr_data = f"PAID|{purchase['name']}|{purchase['price']}|{st.session_state['email']}"
-                        qr = qrcode.make(qr_data)
-                        img_buffer = BytesIO()
-                        qr.save(img_buffer, format="PNG")
-                        
-                        st.balloons()
-                        st.success("Payment Successful!")
-                        st.image(img_buffer, caption="Scan to verify Subscription", width=200)
-
-                        # PDF receipt download
-                        st.download_button(
-                            "📥 Download Receipt (PDF)",
-                            data=txt,
-                            file_name=f"Netflix_Receipt_{purchase['name']}.pdf",
-                            mime="application/pdf"
-                        )
-                        
-                        # Clear pending state
-                        st.session_state['pending_purchase'] = None
-                        st.rerun()
-
-            # --- STEP 1: DISPLAY PLANS ---
-            else:
-                st.title("🔴 Choose Your Netflix Plan")
-                st.info("No active subscription found. Please select a plan to start watching.")
-                
-                plans = [
-                    {"name": "Mobile", "price": 149, "res": "480p", "features": "1 Phone, 1 Tablet, Download"},
-                    {"name": "Standard", "price": 499, "res": "1080p", "features": "2 Screens, HD, Download"},
-                    {"name": "Premium", "price": 649, "res": "4K+HDR", "features": "4 Screens, Ultra HD, Spatial Audio"}
-                ]
-
-                p1, p2, p3 = st.columns(3)
-                cols = [p1, p2, p3]
-
-                for i, plan in enumerate(plans):
-                    with cols[i]:
-                        st.markdown(f"""
-                        <div class="plan-card">
-                            <h1>{plan['name']}</h1>
-                            <h2 style="margin-top: -20px;">₹{plan['price']}</h2>
-                            <hr style="border-color: #555;">
-                            <p>{plan['features']}</p>
-                            <p class="netflix-red">{plan['res']} Resolution</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        if st.button(f"Buy {plan['name']}", key=f"buy_{plan['name']}", use_container_width=True):
-                            st.session_state['pending_purchase'] = plan
-                            st.rerun()
-
 # ================= 3. ADMIN DASHBOARD =================
 elif is_admin_logged_in:
     with st.sidebar:
@@ -821,6 +952,8 @@ elif is_admin_logged_in:
             st.session_state['admin_view'] = 'GlobalSearch'
         if st.button("📺 Content Library", use_container_width=True):
             st.session_state['admin_view'] = 'ContentLib'
+        if st.button("🤝 Mutual Connections", use_container_width=True):
+            st.session_state['admin_view'] = 'MutualConn'
         st.divider()
         if st.button("Logout Admin"):
             del st.session_state['admin_auth']; st.rerun()
@@ -1684,3 +1817,191 @@ elif is_admin_logged_in:
                                file_name="netflix_content.csv", mime="text/csv")
         else:
             st.info("No results found.")
+    # ═══════════════════════════════════════════════════════
+    # ADMIN — MUTUAL CONNECTIONS PANEL
+    # ═══════════════════════════════════════════════════════
+    elif st.session_state['admin_view'] == 'MutualConn':
+        st.title("🤝 Mutual Connection Manager")
+        st.info("Find users who are paying but barely watching, group them together, and send in-app invites to share a plan at a reduced cost.")
+
+        tab_find, tab_send, tab_groups = st.tabs([
+            "🔍 Find Low-Usage Users",
+            "📩 Send Invites",
+            "📊 All Groups"
+        ])
+
+        # ── TAB 1: Find Low-Usage Users ──────────────────────────
+        with tab_find:
+            st.subheader("🔍 Low-Usage Paid Subscribers")
+            st.caption("These users have an active paid plan but low watch time this month — ideal candidates for plan sharing.")
+
+            threshold = st.slider(
+                "Watch time threshold (minutes/month)",
+                min_value=0, max_value=300, value=60, step=10,
+                help="Users watching LESS than this will be flagged."
+            )
+
+            df_low = mutual_mgr.get_low_usage_users(threshold)
+
+            if df_low.empty:
+                st.success(f"✅ No users below {threshold} mins. All subscribers are actively watching!")
+            else:
+                st.warning(f"⚠️ Found **{len(df_low)} users** watching less than {threshold} mins this month.")
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("👥 Low-Usage Users",   len(df_low))
+                m2.metric("💸 Wasted Revenue",
+                          f"₹{df_low['plan_price'].sum():,.0f}",
+                          delta="potential savings if shared")
+                m3.metric("📊 Avg Watch Time",
+                          f"{df_low['watch_mins_this_month'].mean():.0f} mins")
+
+                st.divider()
+
+                # Colour-coded table
+                def colour_watch(val):
+                    if val == 0:
+                        return 'background-color:#4a0000;color:white'
+                    elif val < 30:
+                        return 'background-color:#3d1a00;color:white'
+                    return 'background-color:#1a2d00;color:white'
+
+                display_df = df_low[['fullname','email','country','plan_name',
+                                     'plan_price','watch_mins_this_month']].copy()
+                display_df.columns = ['Name','Email','Country','Plan','Price (₹)','Watch Mins']
+
+                st.dataframe(
+                    display_df.style.applymap(colour_watch, subset=['Watch Mins']),
+                    use_container_width=True
+                )
+
+        # ── TAB 2: Send Invites ──────────────────────────────────
+        with tab_send:
+            st.subheader("📩 Create a Group & Send In-App Invites")
+            st.caption("Select users, choose a plan, write a message — users will see it in their 🔔 Notifications.")
+
+            # Fetch low-usage users for selection
+            df_candidates = mutual_mgr.get_low_usage_users(threshold_mins=300)
+
+            if df_candidates.empty:
+                st.info("No active subscribers found to invite.")
+            else:
+                # Build email→user_id map
+                email_to_uid = dict(zip(df_candidates['email'], df_candidates['user_id']))
+                email_options = df_candidates['email'].tolist()
+
+                selected_emails = st.multiselect(
+                    "Select users to invite (minimum 2)",
+                    options=email_options,
+                    help="Select 2–4 users who will share the plan."
+                )
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    invite_plan = st.selectbox("Plan to Share", ["Mobile", "Standard", "Premium"])
+                with col2:
+                    if selected_emails:
+                        n = len(selected_emails)
+                        prices = {"Mobile": 149, "Standard": 499, "Premium": 649}
+                        split = round(prices[invite_plan] / n, 2)
+                        st.metric(
+                            "Split Price Per User",
+                            f"₹{split:.2f}/month",
+                            delta=f"₹{prices[invite_plan]} ÷ {n} users"
+                        )
+
+                admin_msg = st.text_area(
+                    "Message to users",
+                    placeholder="e.g. Hi! We noticed you haven't been watching much this month. "
+                                "Would you like to share a plan with others and save money?",
+                    height=100
+                )
+
+                if st.button("📩 Send Invites to Selected Users", type="primary",
+                             use_container_width=True):
+                    if len(selected_emails) < 2:
+                        st.error("Please select at least 2 users.")
+                    elif not admin_msg.strip():
+                        st.error("Please write a message for the users.")
+                    else:
+                        user_ids = [int(email_to_uid[e]) for e in selected_emails]
+                        ok, msg, gid = mutual_mgr.create_group_and_invite(
+                            user_ids, invite_plan, admin_msg.strip()
+                        )
+                        if ok:
+                            st.success(f"✅ {msg}")
+                            st.balloons()
+                        else:
+                            st.error(f"❌ {msg}")
+
+        # ── TAB 3: All Groups Overview ───────────────────────────
+        with tab_groups:
+            st.subheader("📊 All Mutual Connection Groups")
+
+            df_groups = mutual_mgr.get_all_groups()
+
+            if df_groups.empty:
+                st.info("No groups created yet. Use the 'Send Invites' tab to create one.")
+            else:
+                # Summary metrics
+                total_groups  = len(df_groups)
+                active_groups = len(df_groups[df_groups['status'] == 'ACTIVE'])
+                forming       = len(df_groups[df_groups['status'] == 'FORMING'])
+
+                g1, g2, g3 = st.columns(3)
+                g1.metric("📦 Total Groups",   total_groups)
+                g2.metric("✅ Active Groups",   active_groups)
+                g3.metric("⏳ Forming Groups",  forming)
+
+                st.divider()
+
+                for _, grp in df_groups.iterrows():
+                    status_color = {"ACTIVE": "#00ff88", "FORMING": "#ff9900"}.get(grp['status'], "#888")
+                    status_icon  = {"ACTIVE": "✅", "FORMING": "⏳"}.get(grp['status'], "❓")
+
+                    with st.expander(
+                        f"{status_icon} Group #{grp['group_id']} — Netflix {grp['plan_name']} "
+                        f"| ₹{float(grp['split_price']):,.2f}/user | {grp['status']}"
+                    ):
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("📦 Plan",        grp['plan_name'])
+                        c2.metric("💰 Full Price",   f"₹{float(grp['full_price']):,.0f}")
+                        c3.metric("✂️ Split Price",  f"₹{float(grp['split_price']):,.2f}")
+                        c4.metric("👥 Max Members",  int(grp['max_members']))
+
+                        st.markdown(f"""
+                        <div style="display:flex;gap:16px;margin:8px 0;">
+                            <span style="background:#1a3a1a;color:#00ff88;padding:4px 10px;border-radius:6px;">
+                                ✅ Accepted: {int(grp['accepted'])}
+                            </span>
+                            <span style="background:#3a2a1a;color:#ff9900;padding:4px 10px;border-radius:6px;">
+                                ⏳ Pending: {int(grp['pending'])}
+                            </span>
+                            <span style="background:#3a1a1a;color:#ff4444;padding:4px 10px;border-radius:6px;">
+                                ❌ Declined: {int(grp['declined'])}
+                            </span>
+                            <span style="color:{status_color};font-weight:bold;padding:4px 0;">
+                                Status: {grp['status']}
+                            </span>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        # Show member details
+                        members = mutual_mgr.get_group_members(int(grp['group_id']))
+                        if not members.empty:
+                            st.markdown("**👥 Members:**")
+                            for _, m in members.iterrows():
+                                m_color = "#00ff88" if m['invite_status'] == 'ACCEPTED' else \
+                                          "#ff9900" if m['invite_status'] == 'PENDING' else "#ff4444"
+                                st.markdown(f"""
+                                <div style="padding:8px 12px;background:#111;border-radius:6px;
+                                            border-left:3px solid {m_color};margin-bottom:6px;">
+                                    <b style="color:white;">{m['fullname']}</b>
+                                    <span style="color:#888;font-size:12px;"> — {m['email']}
+                                    &nbsp;|&nbsp; {m['country']}</span>
+                                    &nbsp;
+                                    <span style="color:{m_color};font-size:12px;font-weight:bold;">
+                                        {m['invite_status']}
+                                    </span>
+                                </div>
+                                """, unsafe_allow_html=True)

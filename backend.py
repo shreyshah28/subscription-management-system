@@ -995,6 +995,204 @@ class AdminAnalytics:
             
         return pd.read_sql(query, db.conn, params=tuple(params))
 
+
+# ══════════════════════════════════════════════════════════════════
+#  MutualConnectionManager — in-app plan sharing & notifications
+# ══════════════════════════════════════════════════════════════════
+
+class MutualConnectionManager:
+    """
+    Handles the full mutual connection lifecycle:
+      Admin  -> identify low-usage paid users
+      Admin  -> create a group & send in-app invites
+      User   -> see notification bell, read invite, accept/decline
+      System -> when enough users accept, group becomes ACTIVE
+      User   -> see group members + split price in dashboard
+    """
+
+    PLAN_PRICES = {"Mobile": 149, "Standard": 499, "Premium": 649}
+    MAX_MEMBERS = {"Mobile": 2, "Standard": 3, "Premium": 4}
+
+    # ---------- ADMIN METHODS ----------
+
+    def get_low_usage_users(self, threshold_mins=60):
+        """Returns active subscribers whose total watch time this month is below threshold."""
+        query = """
+            SELECT
+                u.user_id,
+                u.fullname,
+                u.email,
+                u.country,
+                s.plan_name,
+                s.amount        AS plan_price,
+                s.end_date,
+                COALESCE(SUM(a.session_minutes), 0) AS watch_mins_this_month
+            FROM users u
+            JOIN subscriptions s ON u.user_id = s.user_id
+            LEFT JOIN user_activity a
+                ON u.user_id = a.user_id
+                AND a.login_time >= DATE_TRUNC('month', CURRENT_DATE)
+            WHERE s.status = 'ACTIVE'
+            GROUP BY u.user_id, u.fullname, u.email, u.country,
+                     s.plan_name, s.amount, s.end_date
+            HAVING COALESCE(SUM(a.session_minutes), 0) < %s
+            ORDER BY watch_mins_this_month ASC
+        """
+        return pd.read_sql(query, db.conn, params=(threshold_mins,))
+
+    def create_group_and_invite(self, user_ids, plan_name, admin_message):
+        """
+        Admin selects multiple low-usage users, creates a mutual_group
+        and sends one in-app invite per user.
+        Returns (success: bool, message: str, group_id: int|None)
+        """
+        if not user_ids or len(user_ids) < 2:
+            return False, "Select at least 2 users to form a group.", None
+        full_price  = self.PLAN_PRICES.get(plan_name, 499)
+        max_members = len(user_ids)
+        split_price = round(full_price / max_members, 2)
+        try:
+            db.cursor.execute("""
+                INSERT INTO mutual_groups
+                    (plan_name, full_price, split_price, max_members, status)
+                VALUES (%s, %s, %s, %s, 'FORMING')
+                RETURNING group_id
+            """, (plan_name, full_price, split_price, max_members))
+            group_id = db.cursor.fetchone()[0]
+            for uid in user_ids:
+                db.cursor.execute("""
+                    INSERT INTO mutual_invites
+                        (user_id, group_id, plan_name, split_price, admin_message,
+                         invite_status, member_status)
+                    VALUES (%s, %s, %s, %s, %s, 'PENDING', 'NONE')
+                """, (uid, group_id, plan_name, split_price, admin_message))
+            db.conn.commit()
+            return True, f"Group #{group_id} created. Invites sent to {len(user_ids)} users.", group_id
+        except Exception as e:
+            db.conn.rollback()
+            return False, f"Error creating group: {e}", None
+
+    def get_all_groups(self):
+        """Admin view: all groups with member counts and status."""
+        query = """
+            SELECT
+                g.group_id,
+                g.plan_name,
+                g.full_price,
+                g.split_price,
+                g.max_members,
+                g.status,
+                g.created_at,
+                COUNT(i.invite_id)                                               AS total_invited,
+                SUM(CASE WHEN i.invite_status = 'ACCEPTED' THEN 1 ELSE 0 END) AS accepted,
+                SUM(CASE WHEN i.invite_status = 'DECLINED' THEN 1 ELSE 0 END) AS declined,
+                SUM(CASE WHEN i.invite_status = 'PENDING'  THEN 1 ELSE 0 END) AS pending
+            FROM mutual_groups g
+            LEFT JOIN mutual_invites i ON g.group_id = i.group_id
+            GROUP BY g.group_id, g.plan_name, g.full_price, g.split_price,
+                     g.max_members, g.status, g.created_at
+            ORDER BY g.created_at DESC
+        """
+        return pd.read_sql(query, db.conn)
+
+    def get_group_members(self, group_id):
+        """Returns full member list for a group."""
+        query = """
+            SELECT u.fullname, u.email, u.country,
+                   i.invite_status, i.member_status, i.split_price,
+                   i.sent_at, i.responded_at
+            FROM mutual_invites i
+            JOIN users u ON i.user_id = u.user_id
+            WHERE i.group_id = %s
+            ORDER BY i.sent_at ASC
+        """
+        return pd.read_sql(query, db.conn, params=(group_id,))
+
+    # ---------- USER METHODS ----------
+
+    def get_notification_count(self, user_id):
+        """Returns count of unread (PENDING) invites — used for bell badge."""
+        db.cursor.execute(
+            "SELECT COUNT(*) FROM mutual_invites WHERE user_id=%s AND invite_status='PENDING'",
+            (user_id,)
+        )
+        return db.cursor.fetchone()[0]
+
+    def respond_to_invite(self, invite_id, user_id, accept: bool):
+        """
+        User accepts or declines an invite.
+        If all members accept, group status becomes ACTIVE automatically.
+        Returns (success: bool, message: str)
+        """
+        try:
+            new_status = 'ACCEPTED' if accept else 'DECLINED'
+            new_member = 'ACTIVE'   if accept else 'NONE'
+            db.cursor.execute("""
+                UPDATE mutual_invites
+                SET invite_status = %s,
+                    member_status = %s,
+                    responded_at  = CURRENT_TIMESTAMP
+                WHERE invite_id = %s AND user_id = %s
+            """, (new_status, new_member, invite_id, user_id))
+            if accept:
+                db.cursor.execute(
+                    "SELECT group_id FROM mutual_invites WHERE invite_id = %s", (invite_id,)
+                )
+                group_id = db.cursor.fetchone()[0]
+                db.cursor.execute("""
+                    SELECT COUNT(*) AS total,
+                           SUM(CASE WHEN invite_status='ACCEPTED' THEN 1 ELSE 0 END) AS accepted
+                    FROM mutual_invites WHERE group_id = %s
+                """, (group_id,))
+                row = db.cursor.fetchone()
+                if row and row[0] > 0 and row[0] == row[1]:
+                    db.cursor.execute(
+                        "UPDATE mutual_groups SET status='ACTIVE' WHERE group_id=%s", (group_id,)
+                    )
+            db.conn.commit()
+            msg = "You have joined the mutual connection group!" if accept else "Invite declined."
+            return True, msg
+        except Exception as e:
+            db.conn.rollback()
+            return False, f"Error responding: {e}"
+
+    def get_user_active_connection(self, user_id):
+        """
+        Returns (group_info dict, members_df) for user's current ACTIVE group.
+        Returns (None, None) if not in any group.
+        """
+        query = """
+            SELECT g.group_id, g.plan_name, g.full_price, g.split_price,
+                   g.max_members, g.status, i.invite_id, i.member_status
+            FROM mutual_invites i
+            JOIN mutual_groups g ON i.group_id = g.group_id
+            WHERE i.user_id = %s
+              AND i.invite_status = 'ACCEPTED'
+              AND i.member_status = 'ACTIVE'
+            ORDER BY i.responded_at DESC
+            LIMIT 1
+        """
+        df = pd.read_sql(query, db.conn, params=(user_id,))
+        if df.empty:
+            return None, None
+        group_info = df.iloc[0].to_dict()
+        members_df = self.get_group_members(group_info['group_id'])
+        return group_info, members_df
+
+    def get_all_user_invites(self, user_id):
+        """Returns all invites (any status) for a user — shown in notification panel."""
+        query = """
+            SELECT i.invite_id, i.group_id, i.plan_name, i.split_price,
+                   i.admin_message, i.invite_status, i.member_status,
+                   i.sent_at, i.responded_at,
+                   g.full_price, g.max_members, g.status AS group_status
+            FROM mutual_invites i
+            JOIN mutual_groups g ON i.group_id = g.group_id
+            WHERE i.user_id = %s
+            ORDER BY i.sent_at DESC
+        """
+        return pd.read_sql(query, db.conn, params=(user_id,))
+
 # ══════════════════════════════════════════════════════════════════
 #  NEW: ContentManager — handles all Netflix content from Kaggle
 # ══════════════════════════════════════════════════════════════════
