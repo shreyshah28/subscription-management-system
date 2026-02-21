@@ -61,30 +61,42 @@ try:
         print("FORCE MODE ON - clearing seeded data and re-seeding.")
 
     # --- 2. COUNT EXISTING USERS ---
-    cursor.execute("SELECT COUNT(*) FROM users WHERE role = 'USER'")
+    # We identify seeded users by their mobile = '9999988888'
+    # Real users registered through the app will have a different mobile number
+    # so they are NEVER touched by this script, even in --force mode.
+    cursor.execute("SELECT COUNT(*) FROM users WHERE mobile = '9999988888'")
     existing_count = cursor.fetchone()[0]
 
     if existing_count > 0 and not force_check:
-        print(f"Table already has {existing_count} users. Skipping seeding.")
-        print(f"TIP: Run with '--force' to clear and re-seed:")
+        print(f"Table already has {existing_count} seeded users. Skipping seeding.")
+        print(f"TIP: Run with '--force' to clear and re-seed ONLY the fake seeded users:")
         print(f"   python seed_netflix_realistic.py --force")
+        print(f"NOTE: Real users registered through the app are NEVER affected.")
         conn.close()
         sys.exit(0)
 
-    # --- 3. IF FORCE - DELETE OLD SEEDED DATA SAFELY ---
+    # --- 3. IF FORCE - DELETE ONLY SEEDED DATA SAFELY ---
     #
-    # We delete in correct order to avoid foreign key errors:
-    # payments -> activity -> subscriptions -> feedback -> users
-    # This ensures revenue numbers never double when re-seeded.
+    # IMPORTANT: We delete ONLY users where mobile = '9999988888'
+    # This is the unique tag given to all seeded/fake users.
+    # Real users who registered through the app have real mobile numbers
+    # and are completely safe — they will NEVER be deleted by this script.
+    #
+    # Delete order respects foreign key constraints:
+    # mutual_invites -> payments -> user_activity -> subscriptions -> feedback -> users
     #
     if force_check and existing_count > 0:
-        print("Removing previously seeded users and their data...")
+        print("--------------------------------------------------")
+        print("FORCE MODE: Removing ONLY seeded fake users (mobile = 9999988888)...")
+        print("Real users registered through the app are NOT affected.")
+        print("--------------------------------------------------")
 
-        cursor.execute("SELECT user_id FROM users WHERE role = 'USER'")
+        cursor.execute("SELECT user_id FROM users WHERE mobile = '9999988888'")
         seeded_ids = [r[0] for r in cursor.fetchall()]
 
         if seeded_ids:
             ids_str = ','.join(str(i) for i in seeded_ids)
+            cursor.execute(f"DELETE FROM mutual_invites WHERE user_id IN ({ids_str})")
             cursor.execute(f"DELETE FROM payments      WHERE user_id IN ({ids_str})")
             cursor.execute(f"DELETE FROM user_activity WHERE user_id IN ({ids_str})")
             cursor.execute(f"DELETE FROM subscriptions WHERE user_id IN ({ids_str})")
@@ -92,7 +104,8 @@ try:
             cursor.execute(f"DELETE FROM users         WHERE user_id IN ({ids_str})")
 
         conn.commit()
-        print(f"Cleared {len(seeded_ids)} old seeded users and all their linked data.")
+        print(f"✅ Cleared {len(seeded_ids)} seeded users and their linked data.")
+        print(f"✅ All real user accounts and payments are untouched.")
         print("--------------------------------------------------")
 
     # --- 4. SEED 150 USERS ---
@@ -155,19 +168,35 @@ try:
                 sub_id = cursor.fetchone()[0]
 
                 # ================================================
-                #  KEY FIX: INSERT INTO PAYMENTS TABLE
+                #  INSERT INTO PAYMENTS TABLE
                 #
-                #  payment_date = sub_start_date (historical date)
-                #  This makes past months show revenue in charts.
-                #  Real user purchases also go here - no conflict.
+                #  60% NEW / 40% RENEWAL split for realistic data.
+                #  RENEWAL users also get an older NEW record so
+                #  the monthly trend chart has proper history.
                 # ================================================
+
+                # Decide payment type: 60% NEW, 40% RENEWAL
+                payment_type = 'RENEWAL' if random.random() < 0.4 else 'NEW'
+
                 cursor.execute("""
                     INSERT INTO payments
                         (user_id, subscription_id, plan_name, amount,
                          payment_type, payment_status, payment_date)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (uid, sub_id, plan_name, plan_price,
-                      'NEW', 'SUCCESS', sub_start_date))
+                      payment_type, 'SUCCESS', sub_start_date))
+
+                # For RENEWAL users — also insert the original NEW
+                # payment 30-90 days earlier so history is realistic
+                if payment_type == 'RENEWAL':
+                    original_date = sub_start_date - timedelta(days=random.randint(30, 90))
+                    cursor.execute("""
+                        INSERT INTO payments
+                            (user_id, subscription_id, plan_name, amount,
+                             payment_type, payment_status, payment_date)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (uid, sub_id, plan_name, plan_price,
+                          'NEW', 'SUCCESS', original_date))
 
                 has_subscription = True
             else:

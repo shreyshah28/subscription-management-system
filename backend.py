@@ -11,10 +11,27 @@ class UserModule:
         if not all([name, email, password, mobile, country]):
             return False, "All fields are required!"
 
+        # ── ISSUE 3: Full Name Content Validation ─────────────────
+        name_clean = name.strip()
+        if len(name_clean) < 2:
+            return False, "Full name must be at least 2 characters."
+        if any(char.isdigit() for char in name_clean):
+            return False, "Full name should not contain numbers."
+        if not all(char.isalpha() or char.isspace() for char in name_clean):
+            return False, "Full name should only contain letters and spaces."
+
+        # ── ISSUE 4: Maximum Length Checks ────────────────────────
+        if len(name_clean) > 100:
+            return False, "Full name is too long (maximum 100 characters)."
+        if len(email) > 100:
+            return False, "Email address is too long (maximum 100 characters)."
+        if len(password) > 255:
+            return False, "Password is too long (maximum 255 characters)."
+
         # 2. Email Validation (@gmail.com requirement)
         if not email.endswith("@gmail.com"):
             return False, "Only @gmail.com addresses are allowed."
-        
+
         # 3. Mobile Number Validation (Exactly 10 digits)
         if not (mobile.isdigit() and len(mobile) == 10):
             return False, "Mobile number must be exactly 10 digits."
@@ -46,12 +63,22 @@ class UserModule:
 
     def submit_feedback(self, user_id, content):
         """Stores user movie/show requests"""
+        # ── ISSUE 5: Feedback Content Validation ──────────────────
+        if not content or not content.strip():
+            return False, "Feedback cannot be empty. Please type your request."
+        if len(content.strip()) < 5:
+            return False, "Feedback is too short. Please write at least 5 characters."
+        if len(content.strip()) > 1000:
+            return False, "Feedback is too long (maximum 1000 characters)."
         try:
-            db.cursor.execute("INSERT INTO feedback (user_id, request_content) VALUES (%s, %s)", (user_id, content))
+            db.cursor.execute(
+                "INSERT INTO feedback (user_id, request_content) VALUES (%s, %s)",
+                (user_id, content.strip())
+            )
             db.conn.commit()
-            return True
+            return True, "Thank you! Your request has been sent to the content team."
         except:
-            return False
+            return False, "Could not submit feedback. Please try again."
 
     def get_user_analytics(self, user_id):
         """Returns personal analytics: Spend and Watch Time"""
@@ -210,6 +237,14 @@ class UserModule:
 
 class SubscriptionManager:
     def buy_plan(self, user_id, plan_name, amount, service_type, auto_renewal=False):
+        # ── ISSUE 6: Guard Against Duplicate Active Subscriptions ──
+        db.cursor.execute(
+            "SELECT COUNT(*) FROM subscriptions WHERE user_id=%s AND status='ACTIVE'",
+            (user_id,)
+        )
+        if db.cursor.fetchone()[0] > 0:
+            return None, None  # Already has an active plan — block double purchase
+
         start = datetime.now()
         end = start + timedelta(days=30)
         db.cursor.execute(
@@ -705,6 +740,39 @@ class AdminAnalytics:
         total_users = pd.read_sql("SELECT COUNT(*) FROM users", db.conn).iloc[0,0]
         paid_users = pd.read_sql("SELECT COUNT(DISTINCT user_id) FROM subscriptions", db.conn).iloc[0,0]
         return df_country, total_users, paid_users
+
+    def get_revenue_by_country(self):
+        """Revenue by country using PAYMENTS table (source of truth)"""
+        query = """
+            SELECT u.country, COALESCE(SUM(p.amount), 0) as revenue
+            FROM users u
+            JOIN payments p ON u.user_id = p.user_id
+            WHERE p.payment_status = 'SUCCESS'
+            GROUP BY u.country
+            ORDER BY revenue ASC
+        """
+        return pd.read_sql(query, db.conn)
+
+    def get_renewal_rate(self):
+        """
+        Renewal Rate = Renewal Transactions / Total Transactions * 100
+        (transaction count based — more accurate than revenue-based)
+        """
+        query = """
+            SELECT
+                COUNT(CASE WHEN payment_type = 'RENEWAL' THEN 1 END) as renewal_count,
+                COUNT(*) as total_count,
+                COALESCE(SUM(CASE WHEN payment_type = 'RENEWAL' THEN amount ELSE 0 END), 0) as renewal_rev,
+                COALESCE(SUM(amount), 0) as total_rev
+            FROM payments
+            WHERE payment_status = 'SUCCESS'
+        """
+        df = pd.read_sql(query, db.conn)
+        if df.empty or df.iloc[0]['total_count'] == 0:
+            return 0.0, 0.0, 0, 0
+        row = df.iloc[0]
+        renewal_rate = round((int(row['renewal_count']) / int(row['total_count'])) * 100, 1)
+        return renewal_rate, float(row['renewal_rev']), int(row['renewal_count']), int(row['total_count'])
     
     def get_all_feedback(self):
         """Fetches all user feedback requests"""
@@ -730,10 +798,11 @@ class AdminAnalytics:
         return pd.read_sql(query, db.conn)
 
     def get_total_user_count(self):
-        """Fetches total number of users for ARPU calculation"""
-        query = "SELECT COUNT(*) as count FROM users"
+        """Fetches paying user count for ARPU calculation (excludes non-paying users)"""
+        query = "SELECT COUNT(DISTINCT user_id) as count FROM payments WHERE payment_status = 'SUCCESS'"
         df = pd.read_sql(query, db.conn)
-        return df.iloc[0]['count']
+        count = df.iloc[0]['count']
+        return count if count > 0 else 1  # avoid division by zero
 
     def get_monthly_revenue_trend(self):
         """
@@ -752,19 +821,38 @@ class AdminAnalytics:
         """
         return pd.read_sql(query, db.conn)
     def get_churn_stats(self):
-        """Calculates Churn Rate and counts"""
-        # Total Count
-        total_subs = pd.read_sql("SELECT COUNT(*) as count FROM subscriptions", db.conn).iloc[0]['count']
-        
-        # Cancelled Count
-        cancelled = pd.read_sql("SELECT COUNT(*) as count FROM subscriptions WHERE status = 'CANCELLED'", db.conn).iloc[0]['count']
-        
-        # Calculate Rate
-        churn_rate = 0
-        if total_subs > 0:
-            churn_rate = (cancelled / total_subs) * 100
-            
-        return total_subs, cancelled, round(churn_rate, 2)
+        """
+        Calculates Churn Rate and counts.
+        Churn = EXPIRED + CANCELLED (both mean user is no longer on an active plan).
+        Returns: total_subs, churned (expired+cancelled), cancelled_only, expired_only, churn_rate
+        """
+        # Total subscriptions ever created
+        total_subs = pd.read_sql(
+            "SELECT COUNT(*) as count FROM subscriptions", db.conn
+        ).iloc[0]['count']
+
+        # Churned = EXPIRED + CANCELLED
+        churned = pd.read_sql(
+            "SELECT COUNT(*) as count FROM subscriptions WHERE status IN ('CANCELLED', 'EXPIRED')",
+            db.conn
+        ).iloc[0]['count']
+
+        # Cancelled only (explicitly cancelled by user)
+        cancelled_only = pd.read_sql(
+            "SELECT COUNT(*) as count FROM subscriptions WHERE status = 'CANCELLED'",
+            db.conn
+        ).iloc[0]['count']
+
+        # Expired only (plan ran out, not renewed)
+        expired_only = pd.read_sql(
+            "SELECT COUNT(*) as count FROM subscriptions WHERE status = 'EXPIRED'",
+            db.conn
+        ).iloc[0]['count']
+
+        # Churn rate = churned / total * 100
+        churn_rate = round((churned / total_subs) * 100, 2) if total_subs > 0 else 0
+
+        return total_subs, churned, cancelled_only, expired_only, churn_rate
 
     def get_active_vs_cancelled(self):
         """Fetches counts for pie chart grouped by status"""
@@ -777,13 +865,12 @@ class AdminAnalytics:
         return df.iloc[0][0]
 
     def get_peak_hours(self):
-        """Finds top 5 hours with most logins"""
+        """Returns login count for all 24 hours of the day ordered chronologically"""
         query = """
             SELECT EXTRACT(HOUR FROM login_time) as login_hour, COUNT(*) as count
             FROM user_activity
             GROUP BY login_hour
-            ORDER BY count DESC
-            LIMIT 5
+            ORDER BY login_hour ASC
         """
         return pd.read_sql(query, db.conn)
     
@@ -866,24 +953,6 @@ class AdminAnalytics:
             ORDER BY month ASC
         """
         return pd.read_sql(query, db.conn)
-
-    def get_renewal_rate(self):
-        """Calculates Renewal Rate % = Renewal Revenue / Total Revenue * 100"""
-        query = """
-            SELECT 
-                COALESCE(SUM(CASE WHEN payment_type = 'RENEWAL' THEN amount ELSE 0 END), 0) as renewal_rev,
-                COALESCE(SUM(amount), 0) as total_rev,
-                COUNT(CASE WHEN payment_type = 'RENEWAL' THEN 1 END) as renewal_count,
-                COUNT(*) as total_count
-            FROM payments
-            WHERE payment_status = 'SUCCESS'
-        """
-        df = pd.read_sql(query, db.conn)
-        if df.empty or df.iloc[0]['total_rev'] == 0:
-            return 0.0, 0.0, 0, 0
-        row = df.iloc[0]
-        renewal_rate = round((float(row['renewal_rev']) / float(row['total_rev'])) * 100, 1)
-        return renewal_rate, float(row['renewal_rev']), int(row['renewal_count']), int(row['total_count'])
 
     def get_at_risk_users(self, days_threshold=30):
         """Finds active subscribers who haven't logged in for 30+ days"""

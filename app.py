@@ -40,6 +40,68 @@ st.markdown("""
     }
     .plan-card:hover { border: 2px solid #E50914; transform: scale(1.02); cursor: pointer; }
     .netflix-red { color: #E50914; font-weight: bold; }
+
+    /* ── Sidebar: rounded pill nav for BOTH user & admin panels ── */
+    div[data-testid="stSidebar"] .stRadio > label {
+        display: none;
+    }
+    div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label {
+        display: flex !important;
+        align-items: center;
+        padding: 10px 16px;
+        border-radius: 25px !important;
+        background-color: #2b2b2b;
+        color: #dddddd !important;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.2s, color 0.2s;
+        border: 1.5px solid transparent;
+        margin: 0 !important;
+    }
+    div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover {
+        background-color: #3a3a3a;
+        border-color: #E50914;
+        color: #ffffff !important;
+    }
+    div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:has(input:checked) {
+        background-color: #E50914 !important;
+        color: #ffffff !important;
+        border-color: #E50914 !important;
+        font-weight: 700;
+    }
+    /* Hide the radio circle dot */
+    div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label div:first-child {
+        display: none !important;
+    }
+
+    /* ── Sidebar buttons (Logout, Cancel Subscription) → rounded pill ── */
+    div[data-testid="stSidebar"] .stButton > button {
+        border-radius: 25px !important;
+        background-color: #2b2b2b !important;
+        color: #dddddd !important;
+        border: 1.5px solid transparent !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        padding: 10px 16px !important;
+        width: 100% !important;
+        transition: background 0.2s, color 0.2s, border-color 0.2s !important;
+    }
+    div[data-testid="stSidebar"] .stButton > button:hover {
+        background-color: #3a3a3a !important;
+        border-color: #E50914 !important;
+        color: #ffffff !important;
+    }
+    div[data-testid="stSidebar"] .stButton > button:active {
+        background-color: #E50914 !important;
+        color: #ffffff !important;
+        border-color: #E50914 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -913,8 +975,8 @@ elif is_user_logged_in:
                         with col:
                             type_badge = "🎬" if row['content_type'] == 'Movie' else "📺"
                             st.markdown(f"""
-                            <div style="padding:15px; border-radius:10px; background:#0f3460;
-                                        border:2px solid #E50914; margin-bottom:10px; min-height:200px;">
+                            <div style="padding:15px; border-radius:10px; background:#1a1a2e;
+                                        border:1px solid #333; margin-bottom:10px; min-height:200px;">
                                 <p style="color:#E50914; font-size:11px; margin:0;">
                                     {type_badge} {row['content_type']}
                                     &nbsp;|&nbsp; ⭐ {row['rating'] or 'NR'}
@@ -926,8 +988,11 @@ elif is_user_logged_in:
                                 <p style="color:#aaa; font-size:11px; margin-bottom:6px;">
                                     ⏱️ {row['duration'] or 'N/A'}
                                 </p>
-                                <p style="color:#ddd; font-size:12px; line-height:1.4;">
+                                <p style="color:#ccc; font-size:12px; line-height:1.4;">
                                     {str(row['description'])[:130]}{'...' if len(str(row['description'])) > 130 else ''}
+                                </p>
+                                <p style="color:#E50914; font-size:10px; margin-top:8px;">
+                                    🎭 {str(row['genre'])[:60]}
                                 </p>
                             </div>
                             """, unsafe_allow_html=True)
@@ -936,45 +1001,98 @@ elif is_user_logged_in:
 elif is_admin_logged_in:
     with st.sidebar:
         st.title("🛠️ Admin Panel")
-        if st.button("📊 Analytics Dashboard", use_container_width=True):
-            st.session_state['admin_view'] = 'Analytics'
-        if st.button("📬 User Feedback", use_container_width=True):
-            st.session_state['admin_view'] = 'Feedback'
-        if st.button("👥 User Management", use_container_width=True):
-            st.session_state['admin_view'] = 'Manage'
-        if st.button("💳 Payment History", use_container_width=True):
-            st.session_state['admin_view'] = 'Payments'
-        if st.button("🚨 At-Risk Users", use_container_width=True):
-            st.session_state['admin_view'] = 'AtRisk'
-        if st.button("📈 Revenue Forecast", use_container_width=True):
-            st.session_state['admin_view'] = 'Forecast'
-        if st.button("🔍 Global Search", use_container_width=True):
-            st.session_state['admin_view'] = 'GlobalSearch'
-        if st.button("📺 Content Library", use_container_width=True):
-            st.session_state['admin_view'] = 'ContentLib'
-        if st.button("🤝 Mutual Connections", use_container_width=True):
-            st.session_state['admin_view'] = 'MutualConn'
+
+        _admin_nav_options = [
+            "📊 Analytics Dashboard",
+            "📬 User Feedback",
+            "👥 User Management",
+            "💳 Payment History",
+            "🚨 At-Risk Users",
+            "📈 Revenue Forecast",
+            "📺 Content Library",
+            "🤝 Mutual Connections",
+        ]
+        _admin_nav_map = {
+            "📊 Analytics Dashboard": "Analytics",
+            "📬 User Feedback":       "Feedback",
+            "👥 User Management":     "Manage",
+            "💳 Payment History":     "Payments",
+            "🚨 At-Risk Users":       "AtRisk",
+            "📈 Revenue Forecast":    "Forecast",
+            "📺 Content Library":     "ContentLib",
+            "🤝 Mutual Connections":  "MutualConn",
+        }
+        # Find the currently selected label so radio stays in sync
+        _reverse_map = {v: k for k, v in _admin_nav_map.items()}
+        _current_label = _reverse_map.get(st.session_state['admin_view'], "📊 Analytics Dashboard")
+
+        _selected = st.sidebar.radio(
+            "Navigation",
+            _admin_nav_options,
+            index=_admin_nav_options.index(_current_label),
+            label_visibility="collapsed"
+        )
+        st.session_state['admin_view'] = _admin_nav_map[_selected]
+
         st.divider()
-        if st.button("Logout Admin"):
+        if st.button("🚪 Logout Admin", use_container_width=True):
             del st.session_state['admin_auth']; st.rerun()
 
     if st.session_state['admin_view'] == 'Analytics':
         st.title("🚀 Business Intelligence Dashboard")
 
-        # ── DOWNLOAD CSV ──────────────────────────────────────
+        # ══════════════════════════════════════════════════════════
+        # SHARED THEME — Simple 3-Color Palette
+        # Background: dark grey | Accent: blue | Status: green / red
+        # ══════════════════════════════════════════════════════════
+        _CHART_BG   = "#1C1C1C"   # dark grey plot area
+        _PAPER_BG   = "#252525"   # slightly lighter grey card bg
+        _FONT_COLOR = "#F0F0F0"   # clean white text
+        _GRID_COLOR = "#333333"   # subtle grey gridlines
+
+        # 3 accent colors only — used consistently across all charts
+        _BLUE       = "#4F8EF7"   # main accent — bars, lines, highlights
+        _GREEN      = "#27AE60"   # positive state — active subscriptions
+        _RED        = "#E74C3C"   # negative state — cancelled, danger
+
+        # Plan colors — shades of blue so it stays in one family
+        _PLAN_COLORS = {
+            "Mobile":   "#4F8EF7",   # base blue
+            "Standard": "#1E5DC9",   # darker blue
+            "Premium":  "#8AB4F8",   # lighter blue
+        }
+
+        def _base_layout(**kwargs):
+            """Consistent dark-grey layout applied to every chart."""
+            base = dict(
+                paper_bgcolor=_PAPER_BG,
+                plot_bgcolor=_CHART_BG,
+                font=dict(color=_FONT_COLOR, family="Arial, sans-serif", size=12),
+                margin=dict(l=48, r=48, t=56, b=44),
+                legend=dict(
+                    bgcolor="rgba(0,0,0,0)",
+                    bordercolor=_GRID_COLOR,
+                    borderwidth=1,
+                    font=dict(color=_FONT_COLOR, size=12),
+                ),
+            )
+            base.update(kwargs)
+            return base
+
+        # ── DOWNLOAD CSV ──────────────────────────────────────────
         df_subs = admin_sys.get_all_data("subscriptions")
         if not df_subs.empty:
-            csv = df_subs.to_csv(index=False).encode('utf-8')
+            csv = df_subs.to_csv(index=False).encode("utf-8")
             st.download_button(
                 "📥 Download Revenue Report (CSV)",
                 data=csv,
-                file_name='revenue_report.csv',
-                mime='text/csv'
+                file_name="revenue_report.csv",
+                mime="text/csv",
             )
         st.divider()
 
         # ════════════════════════════════════════════════════════
-        # SECTION 1 — GENERAL OVERVIEW (Metric Cards)
+        # SECTION 1 — GENERAL OVERVIEW  (Metric Cards)
         # ════════════════════════════════════════════════════════
         curr_rev, prev_rev, growth, last_year_rev, count, lifetime_rev = admin_sys.get_monthly_comparison()
         total_users = admin_sys.get_total_user_count()
@@ -985,115 +1103,227 @@ elif is_admin_logged_in:
         m1.metric("💰 Current Month Revenue",  f"₹{curr_rev:,.0f}",  f"{growth}% vs Last Month")
         m2.metric("📅 Last Month Revenue",      f"₹{prev_rev:,.0f}")
         m3.metric("🛒 This Month Sales Count",  count)
-        m4.metric("👤 ARPU (Avg Rev/User)",     f"₹{arpu}")
+        m4.metric("👤 ARPU (Avg Rev/Paying User)", f"₹{arpu}")
 
         st.divider()
 
         # ════════════════════════════════════════════════════════
-        # SECTION 2 — REVENUE CHARTS (3 columns)
+        # SECTION 2 — REVENUE CHARTS
+        # Left  (60 %) : Revenue by Country  — horizontal bar, cyan gradient
+        # Right (40 %) : Plan Popularity     — 3-color vertical bars
         # ════════════════════════════════════════════════════════
         st.subheader("📈 Section 2 — Revenue Charts")
-        g1, g2, g3 = st.columns(3)
+        g2, g3 = st.columns([3, 2])
 
         df_subs_chart = admin_sys.get_all_data("subscriptions")
-
-        with g1:
-            st.markdown("📈 **Platform Market Share (Revenue)**")
-            if not df_subs_chart.empty:
-                fig_pie = px.pie(
-                    df_subs_chart, names='service_type', values='Revenue',
-                    hole=0.5,
-                    color_discrete_map={"Netflix": "#E50914", "Amazon Prime": "#00A8E1", "Disney+ Hotstar": "#001339"}
-                )
-                st.plotly_chart(fig_pie, use_container_width=True)
 
         with g2:
             st.markdown("🌍 **Revenue by Country**")
             try:
-                df_u   = admin_sys.get_all_data("users")
-                df_geo = df_u.merge(df_subs_chart, on="user_id")
-                df_map = df_geo.groupby("country")["Revenue"].sum().reset_index()
-                fig_bar = px.bar(df_map, x='country', y='Revenue', color='Revenue', template="plotly_dark")
-                st.plotly_chart(fig_bar, use_container_width=True)
-            except:
-                st.info("Geographic data unavailable.")
+                df_map = admin_sys.get_revenue_by_country()
+                if not df_map.empty:
+                    fig_country = px.bar(
+                        df_map,
+                        x="revenue", y="country",
+                        orientation="h",
+                        text="revenue",
+                        color="revenue",
+                        color_continuous_scale=[
+                            [0.0, "#1a2e4a"],
+                            [1.0, _BLUE],
+                        ],
+                        labels={"revenue": "Revenue (₹)", "country": ""},
+                    )
+                    fig_country.update_traces(
+                        texttemplate="₹%{text:,.0f}",
+                        textposition="outside",
+                        textfont=dict(color=_FONT_COLOR, size=11),
+                        marker_line_width=0,
+                    )
+                    fig_country.update_layout(
+                        _base_layout(
+                            title=dict(
+                                text="Total Revenue by Country (from Payments)",
+                                font=dict(size=15, color=_FONT_COLOR),
+                            ),
+                            coloraxis_showscale=False,
+                            xaxis=dict(
+                                showgrid=True, gridcolor=_GRID_COLOR,
+                                zeroline=False, tickfont=dict(color=_FONT_COLOR),
+                            ),
+                            yaxis=dict(showgrid=False, tickfont=dict(color=_FONT_COLOR, size=12)),
+                            height=400,
+                        )
+                    )
+                    st.plotly_chart(fig_country, use_container_width=True)
+                else:
+                    st.info("No payment data by country yet.")
+            except Exception as e:
+                st.info(f"Geographic data unavailable: {e}")
 
         with g3:
             st.markdown("💎 **Plan Popularity (Sales Count)**")
             df_plan_pop = admin_sys.get_plan_popularity()
             if not df_plan_pop.empty:
                 fig_plan = px.bar(
-                    df_plan_pop, x='plan_name', y='total_sales',
-                    color='total_sales',
-                    title="Best Selling Plans",
-                    labels={'plan_name': 'Plan', 'total_sales': 'Count'},
-                    text='total_sales',
-                    color_continuous_scale='Reds'
+                    df_plan_pop,
+                    x="plan_name", y="total_sales",
+                    text="total_sales",
+                    color="plan_name",
+                    color_discrete_map=_PLAN_COLORS,
+                    labels={"plan_name": "Plan", "total_sales": "Units Sold"},
                 )
-                fig_plan.update_traces(texttemplate='%{text}', textposition='outside')
+                fig_plan.update_traces(
+                    texttemplate="%{text}",
+                    textposition="outside",
+                    textfont=dict(color=_FONT_COLOR, size=13, family="Arial Black"),
+                    marker_line_width=0,
+                    width=0.42,
+                )
+                fig_plan.update_layout(
+                    _base_layout(
+                        title=dict(
+                            text="Best Selling Plans",
+                            font=dict(size=15, color=_FONT_COLOR),
+                        ),
+                        showlegend=False,
+                        xaxis=dict(
+                            showgrid=False,
+                            tickfont=dict(color=_FONT_COLOR, size=14, family="Arial Black"),
+                        ),
+                        yaxis=dict(
+                            showgrid=True, gridcolor=_GRID_COLOR,
+                            tickfont=dict(color=_FONT_COLOR),
+                        ),
+                        height=400,
+                    )
+                )
                 st.plotly_chart(fig_plan, use_container_width=True)
 
         st.divider()
 
         # ════════════════════════════════════════════════════════
-        # SECTION 3 — USER DEMOGRAPHICS & REVENUE TREND
+        # SECTION 3 — REVENUE TREND  (full-width area chart)
+        # Line: electric cyan  |  Fill: translucent cyan
+        # Peak annotation in amber
         # ════════════════════════════════════════════════════════
-        st.subheader("👥 Section 3 — User Demographics & Trends")
-        g4, g5 = st.columns(2)
-
-        with g4:
-            st.markdown("👨‍👩 **User Age Distribution**")
-            df_ages = admin_sys.get_age_distribution()
-            if not df_ages.empty:
-                fig_age = px.histogram(
-                    df_ages, x="age", nbins=5,
-                    title="User Age Groups",
-                    color_discrete_sequence=px.colors.sequential.RdBu
+        st.subheader("📉 Section 3 — Revenue Trend")
+        df_trend = admin_sys.get_monthly_revenue_trend()
+        if not df_trend.empty:
+            fig_trend = px.area(
+                df_trend, x="Month", y="Revenue",
+                markers=True,
+                line_shape="spline",
+                labels={"Revenue": "Revenue (₹)", "Month": ""},
+            )
+            fig_trend.update_traces(
+                line=dict(color=_BLUE, width=3),
+                marker=dict(
+                    size=10, color=_BLUE,
+                    line=dict(color=_PAPER_BG, width=2),
+                ),
+                fillcolor="rgba(79,142,247,0.12)",
+            )
+            # Amber peak annotation
+            peak_idx = df_trend["Revenue"].idxmax()
+            peak_row = df_trend.loc[peak_idx]
+            fig_trend.add_annotation(
+                x=peak_row["Month"], y=peak_row["Revenue"],
+                text=f"  ⭐ Peak  ₹{float(peak_row['Revenue']):,.0f}",
+                showarrow=True, arrowhead=3, arrowwidth=2,
+                arrowcolor=_BLUE,
+                font=dict(color=_BLUE, size=13, family="Arial Black"),
+                bgcolor="rgba(79,142,247,0.12)",
+                bordercolor=_BLUE, borderwidth=1, borderpad=5,
+                ax=0, ay=-48,
+            )
+            # Horizontal dashed average line
+            avg_rev = df_trend["Revenue"].mean()
+            fig_trend.add_hline(
+                y=avg_rev,
+                line_dash="dot", line_color="#888888", line_width=1.5,
+                annotation_text=f"  Avg ₹{avg_rev:,.0f}",
+                annotation_font_color="#AAAAAA",
+                annotation_position="top left",
+            )
+            fig_trend.update_layout(
+                _base_layout(
+                    title=dict(
+                        text="Monthly Revenue Trend — Last 6 Months",
+                        font=dict(size=16, color=_FONT_COLOR),
+                    ),
+                    xaxis=dict(
+                        showgrid=False,
+                        tickfont=dict(color=_FONT_COLOR, size=12),
+                    ),
+                    yaxis=dict(
+                        showgrid=True, gridcolor=_GRID_COLOR,
+                        tickprefix="₹",
+                        tickfont=dict(color=_FONT_COLOR),
+                    ),
+                    height=380,
                 )
-                st.plotly_chart(fig_age, use_container_width=True)
-            else:
-                st.info("No age data available.")
-
-        with g5:
-            st.markdown("📉 **Revenue Trend (Last 6 Months)**")
-            df_trend = admin_sys.get_monthly_revenue_trend()
-            if not df_trend.empty:
-                fig_trend = px.line(
-                    df_trend, x='Month', y='Revenue',
-                    markers=True, line_shape="spline",
-                    title="Monthly Revenue Trend"
-                )
-                fig_trend.update_traces(line_color='#E50914')
-                st.plotly_chart(fig_trend, use_container_width=True)
-            else:
-                st.info("No trend data available.")
+            )
+            st.plotly_chart(fig_trend, use_container_width=True)
+        else:
+            st.info("No trend data available.")
 
         st.divider()
 
         # ════════════════════════════════════════════════════════
         # SECTION 4 — RETENTION & CHURN
+        # Left donut : Active vs Cancelled  (emerald / rose / amber)
+        # Right donut: Plan Revenue Share   (cyan / purple / amber)
         # ════════════════════════════════════════════════════════
         st.subheader("📉 Section 4 — Retention & Churn Metrics")
-        total, cancelled, churn_rate = admin_sys.get_churn_stats()
+        total, churned, cancelled_only, expired_only, churn_rate = admin_sys.get_churn_stats()
         churn_color = "inverse" if churn_rate > 10 else "normal"
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("📦 Total Subscriptions", total)
-        c2.metric("❌ Total Cancelled",     cancelled)
-        c3.metric("📊 Churn Rate",          f"{churn_rate}%",
-                  delta=f"{churn_rate}%", delta_color=churn_color)
+        c2.metric("⏳ Expired (Not Renewed)", expired_only)
+        c3.metric("❌ Cancelled by User",     cancelled_only)
+        c4.metric("📊 Churn Rate",
+                  f"{churn_rate}%",
+                  delta=f"{churn_rate}% of all subs",
+                  delta_color=churn_color,
+                  help="Churn = (Expired + Cancelled) ÷ Total × 100")
 
         ch1, ch2 = st.columns(2)
         with ch1:
-            st.markdown("🍩 **Active vs Cancelled Users**")
+            st.markdown("🍩 **Active vs Cancelled Subscriptions**")
             df_status = admin_sys.get_active_vs_cancelled()
             if not df_status.empty:
                 fig_ret = px.pie(
-                    df_status, names='status', values='count',
-                    hole=0.4,
-                    color='status',
-                    color_discrete_map={"ACTIVE": "#28a745", "CANCELLED": "#E50914"},
-                    title="Subscription Status Split"
+                    df_status, names="status", values="count",
+                    hole=0.58,
+                    color="status",
+                    color_discrete_map={
+                        "ACTIVE":    _GREEN,
+                        "CANCELLED": _RED,
+                        "EXPIRED":   "#888888",
+                    },
+                )
+                fig_ret.update_traces(
+                    textinfo="percent+label",
+                    textfont=dict(size=13, color="white"),
+                    marker=dict(line=dict(color=_PAPER_BG, width=4)),
+                    pull=[0.05] * len(df_status),
+                    rotation=90,
+                )
+                fig_ret.update_layout(
+                    _base_layout(
+                        title=dict(
+                            text="Subscription Status Breakdown",
+                            font=dict(size=15, color=_FONT_COLOR),
+                        ),
+                        legend=dict(
+                            orientation="h", yanchor="bottom",
+                            y=-0.22, xanchor="center", x=0.5,
+                            font=dict(color=_FONT_COLOR, size=12),
+                        ),
+                        height=400,
+                    )
                 )
                 st.plotly_chart(fig_ret, use_container_width=True)
 
@@ -1102,43 +1332,116 @@ elif is_admin_logged_in:
             df_rev = admin_sys.get_plan_revenue_share()
             if not df_rev.empty:
                 fig_rev = px.pie(
-                    df_rev, names='plan_name', values='total_revenue',
-                    hole=0.5,
-                    title="Revenue Share by Plan",
-                    color_discrete_sequence=px.colors.sequential.Aggrnyl
+                    df_rev, names="plan_name", values="total_revenue",
+                    hole=0.58,
+                    color="plan_name",
+                    color_discrete_map=_PLAN_COLORS,
+                )
+                fig_rev.update_traces(
+                    textinfo="percent+label",
+                    textfont=dict(size=13, color="white"),
+                    marker=dict(line=dict(color=_PAPER_BG, width=4)),
+                    pull=[0.05] * len(df_rev),
+                    rotation=45,
+                )
+                fig_rev.update_layout(
+                    _base_layout(
+                        title=dict(
+                            text="Revenue Share by Plan",
+                            font=dict(size=15, color=_FONT_COLOR),
+                        ),
+                        legend=dict(
+                            orientation="h", yanchor="bottom",
+                            y=-0.22, xanchor="center", x=0.5,
+                            font=dict(color=_FONT_COLOR, size=12),
+                        ),
+                        height=400,
+                    )
                 )
                 st.plotly_chart(fig_rev, use_container_width=True)
 
         st.divider()
 
         # ════════════════════════════════════════════════════════
-        # SECTION 5 — USER ENGAGEMENT  (merged from Session Analytics)
+        # SECTION 5 — USER ENGAGEMENT & ACTIVITY
+        # Avg session card: purple border
+        # Peak hours bar: indigo→purple→cyan gradient
         # ════════════════════════════════════════════════════════
         st.subheader("⏱️ Section 5 — User Engagement & Activity")
 
         avg_mins = admin_sys.get_avg_session_duration()
         avg_mins_rounded = round(avg_mins, 2) if avg_mins else 0
 
-        ea1, ea2 = st.columns([1, 2])
+        ea1, ea2 = st.columns([1, 3])
         with ea1:
-            st.metric("⏱️ Average Session Duration", f"{avg_mins_rounded} mins")
-            st.caption("Average time a user spends per login session.")
+            st.markdown(
+                f"""
+                <div style="
+                    background: #1C1C1C;
+                    border: 2px solid #4F8EF7;
+                    border-radius: 12px;
+                    padding: 32px 20px;
+                    text-align: center;
+                    margin-top: 10px;
+                ">
+                    <div style="color:#AAAAAA;font-size:13px;margin-bottom:8px;">
+                        ⏱️ Avg Session Duration
+                    </div>
+                    <div style="color:#4F8EF7;font-size:52px;font-weight:bold;line-height:1;">
+                        {avg_mins_rounded}
+                    </div>
+                    <div style="color:#888888;font-size:13px;margin-top:8px;">
+                        minutes per session
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         with ea2:
-            st.markdown("📊 **Peak Login Hours**")
+            st.markdown("📊 **Login Activity by Hour (Full Day)**")
             df_hours = admin_sys.get_peak_hours()
             if not df_hours.empty:
                 def format_hour_ampm(h):
-                    if h == 0:   return "12 AM"
-                    elif h < 12: return f"{h} AM"
+                    if h == 0:    return "12 AM"
+                    elif h < 12:  return f"{int(h)} AM"
                     elif h == 12: return "12 PM"
-                    else:        return f"{h - 12} PM"
-                df_hours['time_slot'] = df_hours['login_hour'].apply(format_hour_ampm)
+                    else:         return f"{int(h) - 12} PM"
+                df_hours["time_slot"] = df_hours["login_hour"].apply(format_hour_ampm)
                 fig_peak = px.bar(
-                    df_hours, x='time_slot', y='count',
-                    title="Busiest Login Hours",
-                    labels={'count': 'Logins', 'time_slot': 'Time'},
-                    color='count', color_continuous_scale='Reds'
+                    df_hours, x="time_slot", y="count",
+                    text="count",
+                    color="count",
+                    color_continuous_scale=[
+                        [0.0, "#1a2e4a"],
+                        [1.0, _BLUE],
+                    ],
+                    labels={"count": "Logins", "time_slot": "Hour"},
+                )
+                fig_peak.update_traces(
+                    texttemplate="%{text}",
+                    textposition="outside",
+                    textfont=dict(color=_FONT_COLOR, size=10),
+                    marker_line_width=0,
+                )
+                fig_peak.update_layout(
+                    _base_layout(
+                        title=dict(
+                            text="Login Activity — All Hours of the Day",
+                            font=dict(size=15, color=_FONT_COLOR),
+                        ),
+                        coloraxis_showscale=False,
+                        xaxis=dict(
+                            showgrid=False,
+                            tickfont=dict(color=_FONT_COLOR, size=10),
+                            tickangle=-45,
+                        ),
+                        yaxis=dict(
+                            showgrid=True, gridcolor=_GRID_COLOR,
+                            tickfont=dict(color=_FONT_COLOR),
+                        ),
+                        height=380,
+                    )
                 )
                 st.plotly_chart(fig_peak, use_container_width=True)
             else:
@@ -1147,111 +1450,152 @@ elif is_admin_logged_in:
         st.divider()
 
         # ════════════════════════════════════════════════════════
-        # SECTION 6 — CUSTOMER LIFETIME VALUE  (merged from AdvFin)
+        # SECTION 6 — CUSTOMER LIFETIME VALUE  (styled full-width table)
         # ════════════════════════════════════════════════════════
         st.subheader("🐋 Section 6 — Customer Lifetime Value (CLV)")
-        st.caption("Top 10 most valuable users ranked by spend per active day.")
+        st.caption("Top 10 most valuable users ranked by total spend per active day.")
 
         df_clv = admin_sys.get_customer_lifetime_value()
         if not df_clv.empty:
-            df_clv_sorted = df_clv.sort_values(by='clv', ascending=False).head(10)
-            clv1, clv2 = st.columns(2)
-
-            with clv1:
-                df_display = df_clv_sorted[['fullname', 'total_spend', 'days_active', 'clv']].rename(columns={
-                    'fullname':    'User Name',
-                    'total_spend': 'Total Spend (₹)',
-                    'days_active': 'Days Active',
-                    'clv':         'CLV (₹/Day)'
-                })
-                st.dataframe(df_display, use_container_width=True)
-
-            with clv2:
-                fig_clv = px.bar(
-                    df_clv_sorted, x='fullname', y='clv',
-                    title="Top 10 Users by CLV",
-                    labels={'fullname': 'User', 'clv': 'CLV (₹/Day)'},
-                    color='clv', color_continuous_scale='Reds',
-                    text='clv'
-                )
-                fig_clv.update_traces(texttemplate='₹%{text:.1f}', textposition='outside')
-                fig_clv.update_layout(xaxis_tickangle=-30)
-                st.plotly_chart(fig_clv, use_container_width=True)
+            df_clv_sorted = df_clv.sort_values(by="clv", ascending=False).head(10)
+            df_display = df_clv_sorted[["fullname", "total_spend", "days_active", "clv"]].copy()
+            df_display.columns = ["👤 User Name", "💰 Total Spend (₹)", "📅 Days Active", "⭐ CLV (₹/Day)"]
+            df_display["💰 Total Spend (₹)"] = df_display["💰 Total Spend (₹)"].apply(
+                lambda x: f"₹{float(x):,.2f}"
+            )
+            df_display["⭐ CLV (₹/Day)"] = df_display["⭐ CLV (₹/Day)"].apply(
+                lambda x: f"₹{float(x):.2f}"
+            )
+            df_display.index = range(1, len(df_display) + 1)
+            st.dataframe(
+                df_display,
+                use_container_width=True,
+                height=min(420, 42 * (len(df_display) + 1)),
+            )
         else:
             st.info("No CLV data available yet.")
 
     elif st.session_state['admin_view'] == 'Feedback':
-
         st.title("📬 User Requests & Feedback")
-        st.info("View requests submitted by users regarding new movies or shows.")
-        
+        st.info("View and manage requests submitted by users regarding new movies or shows.")
+
         df_feedback = admin_sys.get_all_feedback()
-        
+
         if not df_feedback.empty:
-            df_feedback = df_feedback.rename(columns={
-                "fullname": "User Name", 
-                "email": "User Email", 
-                "request_content": "Request", 
-                "created_at": "Submitted Date"
+            # ── Summary metrics ──────────────────────────────────
+            total_fb = len(df_feedback)
+            today_fb = len(df_feedback[
+                pd.to_datetime(df_feedback['created_at']).dt.date == pd.Timestamp.now().date()
+            ])
+            f1, f2 = st.columns(2)
+            f1.metric("📬 Total Feedback", total_fb)
+            f2.metric("📅 Received Today",  today_fb)
+
+            st.divider()
+
+            # ── Search filter ────────────────────────────────────
+            search_fb = st.text_input("🔍 Search by user name, email or keyword")
+            if search_fb.strip():
+                mask = (
+                    df_feedback['fullname'].str.contains(search_fb, case=False, na=False) |
+                    df_feedback['email'].str.contains(search_fb, case=False, na=False) |
+                    df_feedback['request_content'].str.contains(search_fb, case=False, na=False)
+                )
+                df_feedback = df_feedback[mask]
+                st.caption(f"Showing **{len(df_feedback)}** results for '{search_fb}'")
+
+            df_show = df_feedback.rename(columns={
+                "fullname":        "User Name",
+                "email":           "User Email",
+                "request_content": "Request",
+                "created_at":      "Submitted Date"
             })
-            st.dataframe(df_feedback, use_container_width=True)
+            st.dataframe(df_show[["id","User Name","User Email","Request","Submitted Date"]],
+                         use_container_width=True)
+
+            # ── Delete feedback ──────────────────────────────────
+            st.divider()
+            st.subheader("🗑️ Delete a Feedback Entry")
+            del_id = st.number_input("Enter Feedback ID to delete", min_value=1, step=1)
+            if st.button("🗑️ Delete Feedback", type="primary"):
+                try:
+                    db.cursor.execute("DELETE FROM feedback WHERE id = %s", (int(del_id),))
+                    db.conn.commit()
+                    st.success(f"Feedback ID {del_id} deleted successfully.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Could not delete: {e}")
         else:
-            st.success("No user feedback found. Users have not requested anything yet.")
+            st.success("✅ No user feedback found yet.")
 
     elif st.session_state['admin_view'] == 'Manage':
         st.title("👥 User Management")
-        st.info("Search for users to Suspend, Activate, or Delete accounts.")
-        
-        # Search Box
-        search_email = st.text_input("🔍 Search by Email")
+        st.info("Search, filter and manage user accounts.")
+
         df_users = admin_sys.get_all_data("users")
-        
-        if search_email:
-            # Filter dataframe to show only matches
-            df_users = df_users[df_users['email'].str.contains(search_email, case=False, na=False)]
-        
-        # Display Users Table
-        if not df_users.empty:
-            st.dataframe(df_users, use_container_width=True)
-            
-            st.divider()
-            st.subheader("🛠️ Perform Action")
-            
-            c1, c2, c3 = st.columns([1, 1, 1])
-            
-            with c1:
-                target_id = st.number_input("Enter User ID to Act On", min_value=1, step=1)
-            
-            with c2:
-                action = st.selectbox("Select Action", ["Choose...", "Suspend", "Activate", "Delete"])
-                
-            with c3:
-                st.write("") # Spacer
-                if action == "Suspend":
-                    if st.button("⛔ Suspend", type="primary"):
-                        if user_sys.change_user_status(target_id, "SUSPENDED"):
-                            st.success("User Suspended!")
-                            st.rerun()
-                        else:
-                            st.error("Failed to suspend.")
-                            
-                elif action == "Activate":
-                    if st.button("✅ Activate", type="primary"):
-                        if user_sys.change_user_status(target_id, "USER"):
-                            st.success("User Activated!")
-                            st.rerun()
-                        else:
-                            st.error("Failed to activate.")
-                            
-                elif action == "Delete":
-                    if st.button("🗑️ Delete", type="primary"):
+
+        # ── Filters row ──────────────────────────────────────
+        fc1, fc2, fc3 = st.columns([2, 1, 1])
+        with fc1:
+            search_email = st.text_input("🔍 Search by name or email")
+        with fc2:
+            role_filter = st.selectbox("Filter by Role", ["All", "USER", "ADMIN", "SUSPENDED"])
+        with fc3:
+            st.write("")  # spacer
+
+        # Apply filters
+        if search_email.strip():
+            df_users = df_users[
+                df_users['email'].str.contains(search_email, case=False, na=False) |
+                df_users['fullname'].str.contains(search_email, case=False, na=False)
+            ]
+        if role_filter != "All":
+            df_users = df_users[df_users['role'] == role_filter]
+
+        # ── Hide sensitive columns ───────────────────────────
+        display_cols = [c for c in df_users.columns if c not in ('password', 'profile_pic_url')]
+        st.caption(f"Showing **{len(df_users)}** users")
+        st.dataframe(df_users[display_cols], use_container_width=True)
+
+        st.divider()
+        st.subheader("🛠️ Perform Action on User")
+
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c1:
+            target_id = st.number_input("Enter User ID to Act On", min_value=1, step=1)
+        with c2:
+            action = st.selectbox("Select Action", ["Choose...", "Suspend", "Activate", "Delete"])
+        with c3:
+            st.write("")
+            if action == "Suspend":
+                if st.button("⛔ Suspend User", type="primary"):
+                    if user_sys.change_user_status(target_id, "SUSPENDED"):
+                        st.success("User Suspended!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to suspend.")
+
+            elif action == "Activate":
+                if st.button("✅ Activate User", type="primary"):
+                    if user_sys.change_user_status(target_id, "USER"):
+                        st.success("User Activated!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to activate.")
+
+            elif action == "Delete":
+                st.warning("⚠️ This is permanent and cannot be undone!")
+                confirm = st.checkbox(f"I confirm I want to permanently delete User ID {int(target_id)}")
+                if confirm:
+                    if st.button("🗑️ Confirm Delete", type="primary"):
                         if user_sys.delete_user(target_id):
                             st.warning("User Deleted Successfully.")
                             st.rerun()
                         else:
-                            st.error("Failed to delete (User might have active subscriptions).")
-        else:
-            st.warning("No users found.")
+                            st.error("Failed to delete. User may have active subscriptions linked.")
+
+        if df_users.empty:
+            st.warning("No users found matching your filters.")
 
     elif st.session_state['admin_view'] == 'Payments':
         st.title("💳 Payment Dashboard — NEW vs RENEWAL Analysis")
@@ -1300,33 +1644,48 @@ elif is_admin_logged_in:
             col1, col2 = st.columns([1, 1])
 
             with col1:
-                # Bar chart — Revenue comparison
                 fig_bar = px.bar(
                     df_new_vs_renewal,
-                    x='payment_type',
-                    y='total_revenue',
+                    x='payment_type', y='total_revenue',
                     color='payment_type',
-                    color_discrete_map={'NEW': '#E50914', 'RENEWAL': '#28a745'},
+                    color_discrete_map={'NEW': '#4F8EF7', 'RENEWAL': '#27AE60'},
                     title="Total Revenue: NEW vs RENEWAL",
                     labels={'payment_type': 'Payment Type', 'total_revenue': 'Revenue (₹)'},
                     text='total_revenue'
                 )
-                fig_bar.update_traces(texttemplate='₹%{text:,.0f}', textposition='outside')
-                fig_bar.update_layout(showlegend=False)
+                fig_bar.update_traces(texttemplate='₹%{text:,.0f}', textposition='outside',
+                                      marker_line_width=0)
+                fig_bar.update_layout(
+                    showlegend=False,
+                    paper_bgcolor="#252525", plot_bgcolor="#1C1C1C",
+                    font=dict(color="#F0F0F0"),
+                    xaxis=dict(showgrid=False, tickfont=dict(color="#F0F0F0", size=13)),
+                    yaxis=dict(showgrid=True, gridcolor="#333333",
+                               tickprefix="₹", tickfont=dict(color="#F0F0F0")),
+                    margin=dict(l=40, r=40, t=50, b=40), height=380,
+                )
                 st.plotly_chart(fig_bar, use_container_width=True)
 
             with col2:
-                # Pie chart — Revenue split
                 fig_pie = px.pie(
                     df_new_vs_renewal,
-                    names='payment_type',
-                    values='total_revenue',
+                    names='payment_type', values='total_revenue',
                     hole=0.5,
                     title="Revenue Split (%)",
                     color='payment_type',
-                    color_discrete_map={'NEW': '#E50914', 'RENEWAL': '#28a745'}
+                    color_discrete_map={'NEW': '#4F8EF7', 'RENEWAL': '#27AE60'}
                 )
-                fig_pie.update_traces(textinfo='percent+label')
+                fig_pie.update_traces(
+                    textinfo='percent+label',
+                    textfont=dict(color='white', size=13),
+                    marker=dict(line=dict(color='#252525', width=3)),
+                )
+                fig_pie.update_layout(
+                    paper_bgcolor="#252525", plot_bgcolor="#252525",
+                    font=dict(color="#F0F0F0"),
+                    legend=dict(font=dict(color="#F0F0F0"), bgcolor="rgba(0,0,0,0)"),
+                    margin=dict(l=20, r=20, t=50, b=20), height=380,
+                )
                 st.plotly_chart(fig_pie, use_container_width=True)
         else:
             st.info("No payment data available yet.")
@@ -1345,18 +1704,56 @@ elif is_admin_logged_in:
                 color='payment_type',
                 markers=True,
                 line_shape='spline',
-                title="Monthly Revenue Trend by Payment Type",
-                labels={'month': 'Month', 'total_revenue': 'Revenue (₹)', 'payment_type': 'Type'},
-                color_discrete_map={'NEW': '#E50914', 'RENEWAL': '#28a745'}
+                title="Monthly Revenue Trend — NEW vs RENEWAL",
+                labels={'month': '', 'total_revenue': 'Revenue (₹)', 'payment_type': 'Type'},
+                color_discrete_map={'NEW': '#4F8EF7', 'RENEWAL': '#27AE60'}
             )
-            fig_line.update_layout(hovermode='x unified')
+            # Thicker lines, bigger markers, white border on dots
+            fig_line.update_traces(
+                line=dict(width=3),
+                marker=dict(size=10, line=dict(color="#1C1C1C", width=2)),
+                selector=dict(mode='lines+markers')
+            )
+            # Add value labels on each data point
+            for ptype, color in [('NEW', '#4F8EF7'), ('RENEWAL', '#27AE60')]:
+                df_sub = df_monthly_trend[df_monthly_trend['payment_type'] == ptype]
+                for _, row in df_sub.iterrows():
+                    fig_line.add_annotation(
+                        x=row['month'], y=row['total_revenue'],
+                        text=f"₹{int(row['total_revenue']):,}",
+                        showarrow=False,
+                        font=dict(size=10, color=color),
+                        yshift=16,
+                    )
+            fig_line.update_layout(
+                paper_bgcolor="#252525",
+                plot_bgcolor="#1C1C1C",
+                font=dict(color="#F0F0F0", family="Arial, sans-serif"),
+                hovermode='x unified',
+                legend=dict(
+                    title="",
+                    orientation="h",
+                    yanchor="bottom", y=1.02,
+                    xanchor="right", x=1,
+                    bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#F0F0F0", size=13),
+                ),
+                xaxis=dict(
+                    showgrid=False,
+                    tickfont=dict(color="#F0F0F0", size=12),
+                    linecolor="#333333",
+                ),
+                yaxis=dict(
+                    showgrid=True,
+                    gridcolor="#333333",
+                    tickprefix="₹",
+                    tickfont=dict(color="#F0F0F0"),
+                    zeroline=False,
+                ),
+                margin=dict(l=50, r=50, t=60, b=40),
+                height=420,
+            )
             st.plotly_chart(fig_line, use_container_width=True)
-
-            # Monthly table below chart
-            st.caption("📋 Monthly Breakdown Table")
-            df_pivot = df_monthly_trend.pivot(index='month', columns='payment_type', values='total_revenue').fillna(0).reset_index()
-            df_pivot.columns.name = None
-            st.dataframe(df_pivot, use_container_width=True)
         else:
             st.info("Not enough monthly data yet.")
 
@@ -1389,8 +1786,9 @@ elif is_admin_logged_in:
 
             **Formula used:**
             ```
-            Renewal Rate = (Renewal Revenue / Total Revenue) × 100
+            Renewal Rate = (Renewal Transactions / Total Transactions) × 100
             ```
+            A renewal transaction = a user who paid again after their plan expired.
             """)
 
         st.divider()
@@ -1464,7 +1862,6 @@ elif is_admin_logged_in:
             df_risk['last_login']    = pd.to_datetime(df_risk['last_login']).dt.strftime("%d %b %Y")
             df_risk['end_date']      = pd.to_datetime(df_risk['end_date']).dt.strftime("%d %b %Y")
 
-            # --- TWO CHARTS SIDE BY SIDE ---
             c1, c2 = st.columns(2)
 
             with c1:
@@ -1472,14 +1869,26 @@ elif is_admin_logged_in:
                 risk_counts = df_risk['Risk Level'].value_counts().reset_index()
                 risk_counts.columns = ['Risk Level', 'Count']
                 color_map = {
-                    "🔴 Critical": "#E50914",
-                    "🟠 High":     "#FF6B35",
-                    "🟡 Medium":   "#FFC107"
+                    "🔴 Critical": "#E74C3C",
+                    "🟠 High":     "#E67E22",
+                    "🟡 Medium":   "#F1C40F"
                 }
                 fig_risk_pie = px.pie(
                     risk_counts, names='Risk Level', values='Count',
-                    hole=0.4, title="Risk Distribution",
+                    hole=0.45, title="Risk Distribution",
                     color='Risk Level', color_discrete_map=color_map
+                )
+                fig_risk_pie.update_traces(
+                    textinfo='percent+label',
+                    textfont=dict(color='white', size=13),
+                    marker=dict(line=dict(color='#252525', width=3)),
+                )
+                fig_risk_pie.update_layout(
+                    paper_bgcolor="#252525", plot_bgcolor="#252525",
+                    font=dict(color="#F0F0F0"),
+                    legend=dict(font=dict(color="#F0F0F0"), bgcolor="rgba(0,0,0,0)"),
+                    title_font=dict(color="#F0F0F0", size=15),
+                    margin=dict(l=20, r=20, t=50, b=20), height=380,
                 )
                 st.plotly_chart(fig_risk_pie, use_container_width=True)
 
@@ -1487,13 +1896,27 @@ elif is_admin_logged_in:
                 st.markdown("📊 **Revenue at Risk by Plan**")
                 df_plan_risk = df_risk.groupby('plan_name')['amount'].sum().reset_index()
                 df_plan_risk.columns = ['Plan', 'Revenue at Risk']
+                _PLAN_RISK_COLORS = {"Mobile": "#4F8EF7", "Standard": "#1E5DC9", "Premium": "#8AB4F8"}
                 fig_plan_risk = px.bar(
                     df_plan_risk, x='Plan', y='Revenue at Risk',
                     color='Plan', title="Revenue at Risk by Plan",
-                    color_discrete_sequence=["#E50914", "#FF6B35", "#FFC107"],
+                    color_discrete_map=_PLAN_RISK_COLORS,
                     text='Revenue at Risk'
                 )
-                fig_plan_risk.update_traces(texttemplate='₹%{text:,.0f}', textposition='outside')
+                fig_plan_risk.update_traces(
+                    texttemplate='₹%{text:,.0f}', textposition='outside',
+                    marker_line_width=0,
+                )
+                fig_plan_risk.update_layout(
+                    showlegend=False,
+                    paper_bgcolor="#252525", plot_bgcolor="#1C1C1C",
+                    font=dict(color="#F0F0F0"),
+                    title_font=dict(color="#F0F0F0", size=15),
+                    xaxis=dict(showgrid=False, tickfont=dict(color="#F0F0F0", size=13)),
+                    yaxis=dict(showgrid=True, gridcolor="#333333",
+                               tickprefix="₹", tickfont=dict(color="#F0F0F0")),
+                    margin=dict(l=40, r=40, t=50, b=40), height=380,
+                )
                 st.plotly_chart(fig_plan_risk, use_container_width=True)
 
             st.divider()
@@ -1526,197 +1949,113 @@ elif is_admin_logged_in:
         else:
             st.success(f"✅ No at-risk users found! All active subscribers logged in within the last {days_filter} days.")
 
+    # ═══════════════════════════════════════════════════════
+    # ADMIN — REVENUE FORECAST
+    # ═══════════════════════════════════════════════════════
     elif st.session_state['admin_view'] == 'Forecast':
         st.title("📈 Revenue Forecast")
         st.info("Predicted next month revenue based on active subscriptions, renewal rate and new user trends.")
 
         forecast = admin_sys.get_revenue_forecast()
 
-        # --- ROW 1: KEY METRIC CARDS ---
+        # ── ROW 1: KEY METRIC CARDS ──────────────────────────
         st.subheader("📊 Forecast Inputs")
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("👥 Active Subscribers",   forecast['active_count'])
-        m2.metric("💰 Avg Plan Price",        f"₹{forecast['avg_price']}")
-        m3.metric("🔄 Renewal Rate",          f"{forecast['renewal_rate']}%")
-        m4.metric("🆕 Avg New Users/Month",   forecast['avg_new_per_month'])
+        m1.metric("👥 Active Subscribers",  forecast['active_count'])
+        m2.metric("💰 Avg Plan Price",       f"₹{forecast['avg_price']}")
+        m3.metric("🔄 Renewal Rate",         f"{forecast['renewal_rate']}%")
+        m4.metric("🆕 Avg New Users/Month",  forecast['avg_new_per_month'])
 
         st.divider()
 
-        # --- ROW 2: BIG FORECAST NUMBER ---
+        # ── ROW 2: BIG FORECAST NUMBER ───────────────────────
         st.subheader("🎯 Next Month Forecast")
         fc1, fc2, fc3 = st.columns(3)
 
         fc1.markdown(f"""
-        <div style="padding:25px; border-radius:12px; background:#1a1a1a; 
-                    border:2px solid #E50914; text-align:center; color:white;">
-            <p style="color:#aaa; font-size:14px;">🔄 From Renewals</p>
-            <h2 style="color:#28a745;">₹{forecast['renewal_revenue']:,.0f}</h2>
+        <div style="padding:25px;border-radius:12px;background:#1C1C1C;
+                    border:2px solid #27AE60;text-align:center;color:white;">
+            <p style="color:#aaa;font-size:14px;">🔄 From Renewals</p>
+            <h2 style="color:#27AE60;">₹{forecast['renewal_revenue']:,.0f}</h2>
             <p style="color:#aaa;">{forecast['renewal_count']} users expected to renew</p>
         </div>
         """, unsafe_allow_html=True)
 
         fc2.markdown(f"""
-        <div style="padding:25px; border-radius:12px; background:#E50914;
-                    text-align:center; color:white;">
-            <p style="font-size:14px; opacity:0.9;">📈 TOTAL FORECAST</p>
+        <div style="padding:25px;border-radius:12px;background:#1E5DC9;
+                    border:2px solid #4F8EF7;text-align:center;color:white;">
+            <p style="font-size:14px;opacity:0.9;">📈 TOTAL FORECAST</p>
             <h1>₹{forecast['total_forecast']:,.0f}</h1>
             <p style="opacity:0.9;">Next Month Prediction</p>
         </div>
         """, unsafe_allow_html=True)
 
         fc3.markdown(f"""
-        <div style="padding:25px; border-radius:12px; background:#1a1a1a;
-                    border:2px solid #28a745; text-align:center; color:white;">
-            <p style="color:#aaa; font-size:14px;">🆕 From New Users</p>
-            <h2 style="color:#28a745;">₹{forecast['new_user_revenue']:,.0f}</h2>
+        <div style="padding:25px;border-radius:12px;background:#1C1C1C;
+                    border:2px solid #4F8EF7;text-align:center;color:white;">
+            <p style="color:#aaa;font-size:14px;">🆕 From New Users</p>
+            <h2 style="color:#4F8EF7;">₹{forecast['new_user_revenue']:,.0f}</h2>
             <p style="color:#aaa;">{forecast['avg_new_per_month']} new users expected</p>
         </div>
         """, unsafe_allow_html=True)
 
         st.divider()
 
-        # --- ROW 3: BREAKDOWN BAR CHART ---
+        # ── ROW 3: BREAKDOWN BAR CHART ───────────────────────
         st.subheader("📊 Revenue Breakdown")
-        c1, c2 = st.columns(2)
-
-        with c1:
-            breakdown_data = {
-                'Source':  ['🔄 Renewals',               '🆕 New Users'],
-                'Revenue': [forecast['renewal_revenue'],  forecast['new_user_revenue']]
-            }
-            df_breakdown = pd.DataFrame(breakdown_data)
-            fig_breakdown = px.bar(
-                df_breakdown, x='Source', y='Revenue',
-                color='Source',
-                color_discrete_map={'🔄 Renewals': '#28a745', '🆕 New Users': '#E50914'},
-                title="Forecast Revenue by Source",
-                labels={'Revenue': 'Predicted Revenue (₹)'},
-                text='Revenue'
-            )
-            fig_breakdown.update_traces(texttemplate='₹%{text:,.0f}', textposition='outside')
-            fig_breakdown.update_layout(showlegend=False)
-            st.plotly_chart(fig_breakdown, use_container_width=True)
-
-        with c2:
-            # Pie chart — share of forecast
-            fig_pie = px.pie(
-                df_breakdown, names='Source', values='Revenue',
-                hole=0.5, title="Forecast Revenue Split",
-                color='Source',
-                color_discrete_map={'🔄 Renewals': '#28a745', '🆕 New Users': '#E50914'}
-            )
-            fig_pie.update_traces(textinfo='percent+label')
-            st.plotly_chart(fig_pie, use_container_width=True)
+        df_fc = pd.DataFrame({
+            'Source':  ['🔄 Renewals',              '🆕 New Users'],
+            'Revenue': [forecast['renewal_revenue'], forecast['new_user_revenue']]
+        })
+        fig_fc = px.bar(
+            df_fc, x='Source', y='Revenue',
+            color='Source',
+            color_discrete_map={'🔄 Renewals': '#27AE60', '🆕 New Users': '#4F8EF7'},
+            title="Forecast Revenue by Source",
+            labels={'Revenue': 'Predicted Revenue (₹)'},
+            text='Revenue'
+        )
+        fig_fc.update_traces(
+            texttemplate='₹%{text:,.0f}', textposition='outside',
+            width=0.35, marker_line_width=0,
+        )
+        fig_fc.update_layout(
+            showlegend=False,
+            paper_bgcolor="#252525", plot_bgcolor="#1C1C1C",
+            font=dict(color="#F0F0F0"),
+            xaxis=dict(showgrid=False, tickfont=dict(size=14, color="#F0F0F0")),
+            yaxis=dict(showgrid=True, gridcolor="#333333",
+                       tickprefix="₹", tickfont=dict(color="#F0F0F0")),
+            height=380, margin=dict(l=40, r=40, t=50, b=40),
+        )
+        st.plotly_chart(fig_fc, use_container_width=True)
 
         st.divider()
 
-        # --- ROW 4: CONFIDENCE METER ---
+        # ── ROW 4: CONFIDENCE METER ──────────────────────────
         st.subheader("🎯 Forecast Confidence")
         confidence = forecast['confidence']
-        conf_color = "#28a745" if confidence >= 70 else "#FFC107" if confidence >= 50 else "#E50914"
+        conf_color = "#27AE60" if confidence >= 70 else "#F1C40F" if confidence >= 50 else "#E74C3C"
         conf_label = "High ✅" if confidence >= 70 else "Medium ⚠️" if confidence >= 50 else "Low ❌"
 
         st.progress(confidence / 100, text=f"Confidence Level: {confidence}% — {conf_label}")
 
         st.markdown(f"""
-        <div style="padding:20px; border-radius:10px; background:#1a1a1a; color:white; margin-top:10px;">
+        <div style="padding:20px;border-radius:10px;background:#1C1C1C;
+                    border:1px solid #333333;color:white;margin-top:10px;">
             <h4 style="color:{conf_color};">Why {confidence}% Confidence?</h4>
             <p style="color:#aaa;">The forecast is based on your real database data:</p>
             <ul style="color:#ccc;">
                 <li>✅ Active subscriber count: <b>{forecast['active_count']} users</b></li>
-                <li>✅ Renewal rate from payments history: <b>{forecast['renewal_rate']}%</b></li>
+                <li>✅ Renewal rate from payment history: <b>{forecast['renewal_rate']}%</b></li>
                 <li>✅ New user trend from last 3 months: <b>{forecast['avg_new_per_month']} avg/month</b></li>
                 <li>⚠️ Assumes plan prices stay same next month</li>
                 <li>⚠️ Assumes renewal rate stays consistent</li>
             </ul>
-            <p style="color:#aaa; font-size:12px;">Confidence increases as more payment history is recorded.</p>
+            <p style="color:#888;font-size:12px;">Confidence increases as more payment history is recorded.</p>
         </div>
         """, unsafe_allow_html=True)
 
-        st.divider()
-
-        # --- ROW 5: FORMULA EXPLANATION ---
-        with st.expander("📖 How is this Forecast Calculated? (Click to see)"):
-            st.markdown(f"""
-            #### Step by Step Formula:
-
-            **Step 1 — Count Active Subscribers**
-            ```
-            Active Users = {forecast['active_count']}
-            ```
-
-            **Step 2 — Average Plan Price**
-            ```
-            Avg Price = Total Active Revenue / Active Count
-                      = ₹{forecast['avg_price']}
-            ```
-
-            **Step 3 — Apply Renewal Rate**
-            ```
-            Renewal Rate    = {forecast['renewal_rate']}%
-            Expected Renewals = {forecast['active_count']} × {forecast['renewal_rate']}%
-                              = {forecast['renewal_count']} users
-            Renewal Revenue = {forecast['renewal_count']} × ₹{forecast['avg_price']}
-                            = ₹{forecast['renewal_revenue']:,.0f}
-            ```
-
-            **Step 4 — New User Revenue**
-            ```
-            Avg New Users/Month (last 3 months) = {forecast['avg_new_per_month']}
-            New User Revenue = {forecast['avg_new_per_month']} × ₹{forecast['avg_price']}
-                             = ₹{forecast['new_user_revenue']:,.0f}
-            ```
-
-            **Step 5 — Total Forecast**
-            ```
-            Total = Renewal Revenue + New User Revenue
-                  = ₹{forecast['renewal_revenue']:,.0f} + ₹{forecast['new_user_revenue']:,.0f}
-                  = ₹{forecast['total_forecast']:,.0f}
-            ```
-            """)
-
-    elif st.session_state['admin_view'] == 'GlobalSearch':
-        st.title("🔍 Global User Search")
-        st.info("Search across the entire database using multiple filters (Email, Country, Plan).")
-        
-        # Input Fields for Search
-        c1, c2, c3 = st.columns(3)
-        
-        with c1:
-            email_f = st.text_input("Search by Email")
-        
-        with c2:
-            # Dropdown with "All" option for no filter
-            country_f = st.selectbox("Filter by Country", ["All", "India", "USA", "UK", "Canada", "Germany"])
-        
-        with c3:
-            # Dropdown with "All" option for no filter
-            plan_f = st.selectbox("Filter by Plan", ["All", "Mobile", "Standard", "Premium"])
-            
-        # Search Button
-        st.divider()
-        if st.button("🔎 Perform Search", type="primary"):
-            df_results = admin_sys.search_global_users(email_f, country_f, plan_f)
-            
-            if not df_results.empty:
-                st.success(f"Found {len(df_results)} records matching your criteria.")
-                
-                # Display the combined data (User Details + Subscription Details)
-                # Rename columns for cleaner display
-                df_display = df_results.rename(columns={
-                    "user_id": "User ID",
-                    "fullname": "Name",
-                    "email": "Email",
-                    "country": "Country",
-                    "age": "Age",
-                    "plan_name": "Plan",
-                    "status": "Sub Status",
-                    "amount": "Amount"
-                })
-                
-                st.dataframe(df_display, use_container_width=True)
-            else:
-                st.warning("No matches found for the selected filters.")
     # ═══════════════════════════════════════════════════════
     # ADMIN — CONTENT LIBRARY ANALYTICS
     # ═══════════════════════════════════════════════════════
@@ -1742,6 +2081,23 @@ elif is_admin_logged_in:
         # ── Genre Distribution Chart ──────────────────────────
         g1, g2 = st.columns(2)
 
+        # ── Shared theme (matches rest of admin dashboard) ────
+        _CL_BG      = "#1C1C1C"
+        _CL_PAPER   = "#252525"
+        _CL_FONT    = "#F0F0F0"
+        _CL_GRID    = "#333333"
+        _CL_BLUE    = "#4F8EF7"
+        _CL_GREEN   = "#27AE60"
+
+        _cl_layout = dict(
+            paper_bgcolor=_CL_PAPER,
+            plot_bgcolor=_CL_BG,
+            font=dict(color=_CL_FONT),
+            title_font=dict(color=_CL_FONT, size=15),
+            legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=_CL_FONT)),
+            margin=dict(l=10, r=10, t=40, b=10),
+        )
+
         with g1:
             st.subheader("🎭 Top 15 Genres")
             df_genres = content_mgr.get_genre_distribution()
@@ -1751,10 +2107,15 @@ elif is_admin_logged_in:
                     orientation='h',
                     title="Most Common Genres",
                     color='count',
-                    color_continuous_scale='Reds',
+                    color_continuous_scale=[[0.0, "#1a3a6b"], [1.0, _CL_BLUE]],
                     labels={'count': 'Number of Titles', 'genre': 'Genre'}
                 )
-                fig_genre.update_layout(yaxis={'categoryorder': 'total ascending'})
+                fig_genre.update_layout(
+                    **_cl_layout,
+                    yaxis=dict(categoryorder='total ascending', gridcolor=_CL_GRID, color=_CL_FONT),
+                    xaxis=dict(gridcolor=_CL_GRID, color=_CL_FONT),
+                    coloraxis_showscale=False,
+                )
                 st.plotly_chart(fig_genre, use_container_width=True)
 
         with g2:
@@ -1767,7 +2128,17 @@ elif is_admin_logged_in:
                     markers=True, line_shape='spline',
                     labels={'release_year': 'Year', 'count': 'Titles'}
                 )
-                fig_year.update_traces(line_color='#E50914')
+                fig_year.update_traces(
+                    line=dict(color=_CL_BLUE, width=3),
+                    marker=dict(size=8, color=_CL_BLUE, line=dict(color=_CL_PAPER, width=2)),
+                    fill='tozeroy',
+                    fillcolor="rgba(79,142,247,0.12)",
+                )
+                fig_year.update_layout(
+                    **_cl_layout,
+                    xaxis=dict(gridcolor=_CL_GRID, color=_CL_FONT),
+                    yaxis=dict(gridcolor=_CL_GRID, color=_CL_FONT),
+                )
                 st.plotly_chart(fig_year, use_container_width=True)
 
         st.divider()
@@ -1778,8 +2149,10 @@ elif is_admin_logged_in:
         fig_split = px.pie(split_data, names='Type', values='Count',
                            hole=0.5,
                            color='Type',
-                           color_discrete_map={'Movie': '#E50914', 'TV Show': '#0070f3'},
+                           color_discrete_map={'Movie': _CL_BLUE, 'TV Show': _CL_GREEN},
                            title="Content Type Distribution")
+        fig_split.update_traces(marker=dict(line=dict(color=_CL_PAPER, width=3)))
+        fig_split.update_layout(**_cl_layout)
         st.plotly_chart(fig_split, use_container_width=True)
 
         st.divider()
