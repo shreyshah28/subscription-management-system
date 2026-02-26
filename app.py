@@ -152,6 +152,11 @@ if not is_user_logged_in and not is_admin_logged_in:
                 reg_email = st.text_input("Email", placeholder="example@gmail.com")
                 reg_mobile = st.text_input("Mobile No", placeholder="10-digit number")
                 reg_country = st.selectbox("Country", ["India", "USA", "UK", "Canada", "Germany"])
+            
+            reg_genre = st.selectbox("Favorite Genre", ["", "Action", "Comedy", "Drama", "Horror",
+                                                         "Romance", "Thriller", "Sci-Fi", "Documentary",
+                                                         "Animation", "Crime", "Family"],
+                                     help="Optional – helps us personalise your content recommendations")
 
             if st.button("Register Now", type="primary"):
                 if not reg_email.endswith("@gmail.com"):
@@ -163,7 +168,7 @@ if not is_user_logged_in and not is_admin_logged_in:
                 elif len(reg_pass) < 6:
                     st.error("Invalid Password: Must be at least 6 characters.")
                 else:
-                    res, msg = user_sys.register(reg_name, reg_email, reg_pass, reg_mobile, reg_age, reg_country)
+                    res, msg = user_sys.register(reg_name, reg_email, reg_pass, reg_mobile, reg_age, reg_country, reg_genre)
                     if res:
                         st.success(msg)
                         st.balloons()

@@ -6,7 +6,7 @@ from database import DB
 db = DB()
 
 class UserModule:
-    def register(self, name, email, password, mobile, age, country):
+    def register(self, name, email, password, mobile, age, country, favorite_genre=""):
         # 1. Basic Empty Checks
         if not all([name, email, password, mobile, country]):
             return False, "All fields are required!"
@@ -48,8 +48,8 @@ class UserModule:
         
         try:
             db.cursor.execute(
-                "INSERT INTO users (fullname, email, password, mobile, age, country) VALUES (%s, %s, %s, %s, %s, %s)", 
-                (name, email, hashed_pw, mobile, age, country)
+                "INSERT INTO users (fullname, email, password, mobile, age, country, favorite_genre) VALUES (%s, %s, %s, %s, %s, %s, %s)", 
+                (name, email, hashed_pw, mobile, age, country, favorite_genre)
             )
             db.conn.commit()
             return True, "Registration Successful"
